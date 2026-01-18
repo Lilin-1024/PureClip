@@ -6,24 +6,27 @@ namespace PureClip
         public Form1()
         {
             InitializeComponent();
-            StartPosition = FormStartPosition.Manual;
-            FormBorderStyle = FormBorderStyle.None;
+
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.TopMost = false;
+
+            this.Bounds = Screen.PrimaryScreen.Bounds;
 
             var screen = Screen.PrimaryScreen.WorkingArea;
             _minCanvas = new Rectangle((screen.Width - 300) / 2, (screen.Height - 300) / 2, 300, 300);
 
-            Bounds = _minCanvas;
+            Color ghostColor = Color.FromArgb(255, 1, 1, 1); 
+            this.BackColor = ghostColor;
+            this.TransparencyKey = ghostColor;
 
-            AllowDrop = true;
-            DoubleBuffered = true;
+            this.AllowDrop = true;
+            this.DoubleBuffered = true;
         }
 
-        private void Form1_DragEnter(object sender, DragEventArgs e)
+        protected override void OnDragEnter(DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
                 e.Effect = DragDropEffects.Copy;
-            }
         }
 
         protected override void OnDragDrop(DragEventArgs e)
@@ -46,19 +49,16 @@ namespace PureClip
 
                     _items.Add(newItem);
                 }
-                catch {}
+                catch { }
             }
 
-            UpdateWindowLayout();
+            Invalidate();
         }
 
         private List<ClipItem> _items = new List<ClipItem>();
 
-        private int _padding = 40;
-        private void UpdateWindowLayout()
+        private Rectangle GetCurrentCanvasBounds()
         {
-            if (_items.Count == 0) return;
-
             float minX = _minCanvas.Left;
             float minY = _minCanvas.Top;
             float maxX = _minCanvas.Right;
@@ -66,101 +66,123 @@ namespace PureClip
 
             foreach (var item in _items)
             {
-                minX = Math.Min(minX, item.X - _padding);
-                minY = Math.Min(minY, item.Y - _padding);
-                maxX = Math.Max(maxX, item.X + item.DisplayWidth + _padding);
-                maxY = Math.Max(maxY, item.Y + item.DisplayHeight + _padding);
+                if (item.X < minX) minX = item.X;
+                if (item.Y < minY) minY = item.Y;
+                if (item.X + item.DisplayWidth > maxX) maxX = item.X + item.DisplayWidth;
+                if (item.Y + item.DisplayHeight > maxY) maxY = item.Y + item.DisplayHeight;
             }
 
-            int newX = (int)Math.Floor(minX);
-            int newY = (int)Math.Floor(minY);
-            int newW = (int)Math.Ceiling(maxX - minX);
-            int newH = (int)Math.Ceiling(maxY - minY);
-
-            if (newX != Left || newY != Top || newW != Width || newH != Height)
-            {
-                this.SetBounds(newX, newY, newW, newH);
-            }
-
-            Invalidate();
+            int margin = 20; 
+            return new Rectangle(
+                (int)minX - margin,
+                (int)minY - margin,
+                (int)(maxX - minX) + margin * 2,
+                (int)(maxY - minY) + margin * 2
+            );
         }
-
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
 
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            Rectangle activeCanvas = GetCurrentCanvasBounds();
 
-            int curLeft = this.Left;
-            int curTop = this.Top;
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(45, 45, 45)))
+            {
+                g.FillRectangle(brush, activeCanvas);
+            }
 
             foreach (var item in _items)
             {
-                float drawX = item.X - curLeft;
-                float drawY = item.Y - curTop;
-                g.DrawImage(item.ImageData, drawX, drawY, item.DisplayWidth, item.DisplayHeight);
+                g.DrawImage(item.ImageData, item.X, item.Y, item.DisplayWidth, item.DisplayHeight);
             }
         }
 
         private ClipItem _draggingItem = null;
         private Point _lastMousePos;
 
-        private void Form1_MouseDown(object sender, MouseEventArgs e)
+        protected override void OnMouseDown(MouseEventArgs e)
         {
-            float screenMouseX = e.X + this.Left;
-            float screenMouseY = e.Y + this.Top;
-
             for (int i = _items.Count - 1; i >= 0; i--)
             {
-                if (_items[i].Contains(screenMouseX, screenMouseY))
+                if (_items[i].Contains(e.X, e.Y))
                 {
                     _draggingItem = _items[i];
                     _lastMousePos = Cursor.Position;
 
+                    var item = _items[i];
                     _items.RemoveAt(i);
-                    _items.Add(_draggingItem);
-                    break;
+                    _items.Add(item);
+
+                    Invalidate();
+                    return;
                 }
             }
         }
 
-        private void Form1_MouseMove(object sender, MouseEventArgs e)
+        protected override void OnMouseMove(MouseEventArgs e)
         {
             if (_draggingItem != null && e.Button == MouseButtons.Left)
             {
-                Point currentMousePos = Cursor.Position;
-                float dx = currentMousePos.X - _lastMousePos.X;
-                float dy = currentMousePos.Y - _lastMousePos.Y;
+                Point currentPos = Cursor.Position;
+                _draggingItem.X += (currentPos.X - _lastMousePos.X);
+                _draggingItem.Y += (currentPos.Y - _lastMousePos.Y);
 
-                _draggingItem.X += dx;
-                _draggingItem.Y += dy;
-
-                _lastMousePos = currentMousePos;
-
-                UpdateWindowLayout();
+                _lastMousePos = currentPos;
+                Invalidate(); // ÖØÐÂ»­Í¼
             }
         }
 
-        private void Form1_MouseUp(object sender, MouseEventArgs e)
+        protected override void OnMouseUp(MouseEventArgs e)
         {
             _draggingItem = null;
         }
-    }
 
-    public class ClipItem
-    {
-        public Bitmap ImageData;
-        public float X;
-        public float Y;
-        public float Scale = 1.0f;
-
-        public float DisplayWidth => ImageData.Width * Scale;
-        public float DisplayHeight => ImageData.Height * Scale;
-        public bool Contains(float mouseX, float mouseY)
+        protected override void OnKeyDown(KeyEventArgs e)
         {
-            return mouseX > X && mouseX <= X + DisplayWidth &&
-                   mouseY > Y && mouseY <= Y + DisplayHeight;
+            if (e.KeyCode == Keys.Escape) Application.Exit();
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCHITTEST = 0x0084;
+            const int HTTRANSPARENT = -1;
+            const int HTCLIENT = 1;
+
+            if (m.Msg == WM_NCHITTEST)
+            {
+                int x = (int)(m.LParam.ToInt32() & 0xFFFF);
+                int y = (int)((m.LParam.ToInt32() >> 16) & 0xFFFF);
+                Point clientPoint = this.PointToClient(new Point(x, y));
+
+                Rectangle activeCanvas = GetCurrentCanvasBounds();
+                if (activeCanvas.Contains(clientPoint))
+                {
+                    m.Result = (IntPtr)HTCLIENT;
+                    return;
+                }
+                else
+                {
+                    m.Result = (IntPtr)HTTRANSPARENT;
+                    return;
+                }
+            }
+            base.WndProc(ref m);
+        }
+
+        public class ClipItem
+        {
+            public Bitmap ImageData;
+            public float X;
+            public float Y;
+            public float Scale = 1.0f;
+
+            public float DisplayWidth => ImageData.Width * Scale;
+            public float DisplayHeight => ImageData.Height * Scale;
+            public bool Contains(float mouseX, float mouseY)
+            {
+                return mouseX > X && mouseX <= X + DisplayWidth &&
+                       mouseY > Y && mouseY <= Y + DisplayHeight;
+            }
         }
     }
 }
