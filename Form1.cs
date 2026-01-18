@@ -2,28 +2,20 @@ namespace PureClip
 {
     public partial class Form1 : Form
     {
+        private Rectangle _minCanvas;
         public Form1()
         {
             InitializeComponent();
             StartPosition = FormStartPosition.Manual;
+            FormBorderStyle = FormBorderStyle.None;
 
-            Width = 300;
-            Height = 300;
+            var screen = Screen.PrimaryScreen.WorkingArea;
+            _minCanvas = new Rectangle((screen.Width - 300) / 2, (screen.Height - 300) / 2, 300, 300);
+
+            Bounds = _minCanvas;
 
             AllowDrop = true;
             DoubleBuffered = true;
-
-            CenterWindow();
-        }
-
-        public void CenterWindow()
-        {
-            var currentScreen = Screen.FromControl(this);
-            var workingArea = currentScreen.WorkingArea;
-
-            Left = (workingArea.Left + (workingArea.Width - Width) / 2);
-            Top = (workingArea.Top + (workingArea.Height - Height) / 2);
-
         }
 
         private void Form1_DragEnter(object sender, DragEventArgs e)
@@ -37,24 +29,24 @@ namespace PureClip
         protected override void OnDragDrop(DragEventArgs e)
         {
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+
+            Point dropPoint = new Point(e.X, e.Y);
+
             foreach (string path in files)
             {
                 try
                 {
-                    var newItem = new ClipItem
-                    {
-                        ImageData = new Bitmap(path),
-                        X = 0,
-                        Y = 0,
-                        Scale = 1.0f
-                    };
+                    Bitmap bmp = new Bitmap(path);
+                    var newItem = new ClipItem { ImageData = bmp };
 
-                    if (newItem.ImageData.Width > 800)
-                        newItem.Scale = 800f / newItem.ImageData.Width;
+                    if (bmp.Width > 800) newItem.Scale = 800f / bmp.Width;
+
+                    newItem.X = dropPoint.X - (newItem.DisplayWidth / 2);
+                    newItem.Y = dropPoint.Y - (newItem.DisplayHeight / 2);
 
                     _items.Add(newItem);
                 }
-                catch { }
+                catch {}
             }
 
             UpdateWindowLayout();
@@ -63,28 +55,32 @@ namespace PureClip
         private List<ClipItem> _items = new List<ClipItem>();
 
         private int _padding = 40;
-
-        private float _contentOffsetX = 0;
-        private float _contentOffsetY = 0;
         private void UpdateWindowLayout()
         {
             if (_items.Count == 0) return;
 
-            float minX = _items.Min(i => i.X);
-            float minY = _items.Min(i => i.Y);
-            float maxX = _items.Max(i => i.X + i.DisplayWidth);
-            float maxY = _items.Max(i => i.Y + i.DisplayHeight);
+            float minX = _minCanvas.Left;
+            float minY = _minCanvas.Top;
+            float maxX = _minCanvas.Right;
+            float maxY = _minCanvas.Bottom;
 
-            _contentOffsetX = minX;
-            _contentOffsetY = minY;
+            foreach (var item in _items)
+            {
+                minX = Math.Min(minX, item.X - _padding);
+                minY = Math.Min(minY, item.Y - _padding);
+                maxX = Math.Max(maxX, item.X + item.DisplayWidth + _padding);
+                maxY = Math.Max(maxY, item.Y + item.DisplayHeight + _padding);
+            }
 
-            int contentWidth = (int)(maxX - minX);
-            int contentHeight = (int)(maxY - minY);
+            int newX = (int)Math.Floor(minX);
+            int newY = (int)Math.Floor(minY);
+            int newW = (int)Math.Ceiling(maxX - minX);
+            int newH = (int)Math.Ceiling(maxY - minY);
 
-            Width = contentWidth + (_padding * 2);
-            Height = contentHeight + (_padding * 2);
-
-            CenterWindow();
+            if (newX != Left || newY != Top || newW != Width || newH != Height)
+            {
+                this.SetBounds(newX, newY, newW, newH);
+            }
 
             Invalidate();
         }
@@ -92,14 +88,17 @@ namespace PureClip
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
+
             g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+
+            int curLeft = this.Left;
+            int curTop = this.Top;
 
             foreach (var item in _items)
             {
-
-                float drawX = item.X - _contentOffsetX + _padding;
-                float drawY = item.Y - _contentOffsetY + _padding;
-
+                float drawX = item.X - curLeft;
+                float drawY = item.Y - curTop;
                 g.DrawImage(item.ImageData, drawX, drawY, item.DisplayWidth, item.DisplayHeight);
             }
         }
@@ -109,36 +108,35 @@ namespace PureClip
 
         private void Form1_MouseDown(object sender, MouseEventArgs e)
         {
-            float adjustedX = e.X - _padding + _contentOffsetX;
-            float adjustedY = e.Y - _padding + _contentOffsetY;
+            float screenMouseX = e.X + this.Left;
+            float screenMouseY = e.Y + this.Top;
 
             for (int i = _items.Count - 1; i >= 0; i--)
             {
-                if (_items[i].Contains(adjustedX, adjustedY))
+                if (_items[i].Contains(screenMouseX, screenMouseY))
                 {
                     _draggingItem = _items[i];
-                    _lastMousePos = e.Location;
+                    _lastMousePos = Cursor.Position;
 
                     _items.RemoveAt(i);
                     _items.Add(_draggingItem);
                     break;
                 }
             }
-
-            Invalidate();
         }
 
         private void Form1_MouseMove(object sender, MouseEventArgs e)
         {
             if (_draggingItem != null && e.Button == MouseButtons.Left)
             {
-                float dx = e.X - _lastMousePos.X;
-                float dy = e.Y - _lastMousePos.Y;
+                Point currentMousePos = Cursor.Position;
+                float dx = currentMousePos.X - _lastMousePos.X;
+                float dy = currentMousePos.Y - _lastMousePos.Y;
 
                 _draggingItem.X += dx;
                 _draggingItem.Y += dy;
 
-                _lastMousePos = e.Location;
+                _lastMousePos = currentMousePos;
 
                 UpdateWindowLayout();
             }
