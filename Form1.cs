@@ -7,6 +7,9 @@ namespace PureClip
         {
             InitializeComponent();
 
+            this.Text = "";
+            this.ShowIcon = false;
+
             this.FormBorderStyle = FormBorderStyle.None;
             this.TopMost = false;
 
@@ -21,6 +24,17 @@ namespace PureClip
 
             this.AllowDrop = true;
             this.DoubleBuffered = true;
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                //允许最小化
+                CreateParams cp = base.CreateParams;
+                cp.Style |= 0x00020000;
+                return cp;
+            }
         }
 
         protected override void OnDragEnter(DragEventArgs e)
@@ -44,9 +58,17 @@ namespace PureClip
 
                     if (bmp.Width > 800) newItem.Scale = 800f / bmp.Width;
 
-                    newItem.X = dropPoint.X - (newItem.DisplayWidth / 2);
-                    newItem.Y = dropPoint.Y - (newItem.DisplayHeight / 2);
-
+                    if (_items.Count == 0)
+                    {
+                        Rectangle currentBox = GetCurrentCanvasBounds();
+                        newItem.X = currentBox.Left + (currentBox.Width - newItem.DisplayWidth) / 2;
+                        newItem.Y = currentBox.Top + (currentBox.Height - newItem.DisplayHeight) / 2;
+                    }
+                    else
+                    {
+                        newItem.X = dropPoint.X - (newItem.DisplayWidth / 2);
+                        newItem.Y = dropPoint.Y - (newItem.DisplayHeight / 2);
+                    }
                     _items.Add(newItem);
                 }
                 catch { }
@@ -59,10 +81,17 @@ namespace PureClip
 
         private Rectangle GetCurrentCanvasBounds()
         {
-            float minX = _minCanvas.Left;
-            float minY = _minCanvas.Top;
-            float maxX = _minCanvas.Right;
-            float maxY = _minCanvas.Bottom;
+            int margin = 20;
+
+            if (_items.Count == 0)
+            {
+                return _minCanvas;
+            }
+
+            float minX = _items[0].X;
+            float minY = _items[0].Y;
+            float maxX = _items[0].X + _items[0].DisplayWidth;
+            float maxY = _items[0].Y + _items[0].DisplayHeight;
 
             foreach (var item in _items)
             {
@@ -72,7 +101,6 @@ namespace PureClip
                 if (item.Y + item.DisplayHeight > maxY) maxY = item.Y + item.DisplayHeight;
             }
 
-            int margin = 20; 
             return new Rectangle(
                 (int)minX - margin,
                 (int)minY - margin,
@@ -89,6 +117,15 @@ namespace PureClip
             using (SolidBrush brush = new SolidBrush(Color.FromArgb(45, 45, 45)))
             {
                 g.FillRectangle(brush, activeCanvas);
+            }
+
+            using (Pen borderPen = new Pen(Color.Black, 1))
+            {
+                g.DrawRectangle(borderPen,
+                    activeCanvas.X,
+                    activeCanvas.Y,
+                    activeCanvas.Width - 1,
+                    activeCanvas.Height - 1);
             }
 
             foreach (var item in _items)
