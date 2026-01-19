@@ -1,8 +1,10 @@
+using System.Drawing.Printing;
+
 namespace PureClip
 {
     public partial class Form1 : Form
     {
-        private Rectangle _minCanvas;
+        private Rectangle _activeCanvas;
 
         public int _CanvasSize = 300;
         public Form1()
@@ -18,13 +20,11 @@ namespace PureClip
             this.Bounds = Screen.PrimaryScreen.Bounds;
 
             var screen = Screen.PrimaryScreen.WorkingArea;
+            _activeCanvas = new Rectangle((screen.Width - _CanvasSize) / 2, (screen.Height - _CanvasSize) / 2, _CanvasSize, _CanvasSize);
 
-            _minCanvas = new Rectangle((screen.Width - _CanvasSize) / 2, (screen.Height - _CanvasSize) / 2, _CanvasSize, _CanvasSize);
-
-            Color ghostColor = Color.FromArgb(255, 1, 1, 1); 
+            Color ghostColor = Color.FromArgb(255, 1, 1, 1);
             this.BackColor = ghostColor;
             this.TransparencyKey = ghostColor;
-
             this.AllowDrop = true;
             this.DoubleBuffered = true;
         }
@@ -73,6 +73,23 @@ namespace PureClip
                         newItem.Y = dropPoint.Y - (newItem.DisplayHeight / 2);
                     }
                     _items.Add(newItem);
+
+                    int margin = 20;
+                    Rectangle newItemRect = new Rectangle(
+                        (int)newItem.X - margin,
+                        (int)newItem.Y - margin,
+                        (int)newItem.DisplayWidth + margin * 2,
+                        (int)newItem.DisplayHeight + margin * 2
+                    );
+
+                    if (_items.Count == 1)
+                    {
+                        _activeCanvas = newItemRect;
+                    }
+                    else
+                    {
+                        _activeCanvas = Rectangle.Union(_activeCanvas, newItemRect);
+                    }
                 }
                 catch { }
             }
@@ -81,42 +98,10 @@ namespace PureClip
         }
 
         private List<ClipItem> _items = new List<ClipItem>();
-
-        private float _canvasPadding = 20f;
-        private const float MIN_PADDING = 20f;
         private Rectangle GetCurrentCanvasBounds()
         {
             Rectangle screen = Screen.PrimaryScreen.WorkingArea;
-            int margin = (int)_canvasPadding;
-
-            if (_items.Count == 0)
-            {
-                return _minCanvas;
-            }
-
-            float minX = _items.Min(i => i.X);
-            float minY = _items.Min(i => i.Y);
-            float maxX = _items.Max(i => i.X + i.DisplayWidth);
-            float maxY = _items.Max(i => i.Y + i.DisplayHeight);
-
-            int targetW = (int)(maxX - minX + margin * 2);
-            int targetH = (int)(maxY - minY + margin * 2);
-
-            if (targetW > screen.Width) targetW = screen.Width;
-            if (targetH > screen.Height) targetH = screen.Height;
-
-            int centerX = (int)((minX + maxX) / 2);
-            int centerY = (int)((minY + maxY) / 2);
-
-            int x = centerX - targetW / 2;
-            int y = centerY - targetH / 2;
-
-            if (x < screen.Left) x = screen.Left;
-            if (y < screen.Top) y = screen.Top;
-            if (x + targetW > screen.Right) x = screen.Right - targetW;
-            if (y + targetH > screen.Bottom) y = screen.Bottom - targetH;
-
-            return new Rectangle(x, y, targetW, targetH);
+            return Rectangle.Intersect(_activeCanvas, screen);
         }
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -207,8 +192,17 @@ namespace PureClip
                 _draggingItem.X = nextX;
                 _draggingItem.Y = nextY;
 
-                _lastMousePos = currentMousePos;
+                int margin = 20;
+                Rectangle itemRectWithPadding = new Rectangle(
+                    (int)_draggingItem.X - margin,
+                    (int)_draggingItem.Y - margin,
+                    (int)_draggingItem.DisplayWidth + margin * 2,
+                    (int)_draggingItem.DisplayHeight + margin * 2
+                );
 
+                _activeCanvas = Rectangle.Union(_activeCanvas, itemRectWithPadding);
+
+                _lastMousePos = currentMousePos;
                 Invalidate();
             }
         }
@@ -221,6 +215,8 @@ namespace PureClip
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             float zoomFactor = e.Delta > 0 ? 1.1f : 0.9f;
+            Rectangle screen = Screen.PrimaryScreen.WorkingArea;
+            int margin = 20;
 
             if (_selectedItem != null)
             {
@@ -228,32 +224,64 @@ namespace PureClip
                 float oldHeight = _selectedItem.DisplayHeight;
 
                 _selectedItem.Scale *= zoomFactor;
-
                 if (_selectedItem.Scale < 0.01f) _selectedItem.Scale = 0.01f;
 
                 _selectedItem.X -= (_selectedItem.DisplayWidth - oldWidth) / 2f;
                 _selectedItem.Y -= (_selectedItem.DisplayHeight - oldHeight) / 2f;
+
+                // 实时更新画布大小
+                Rectangle itemRect = new Rectangle(
+                    (int)_selectedItem.X - margin,
+                    (int)_selectedItem.Y - margin,
+                    (int)_selectedItem.DisplayWidth + margin * 2,
+                    (int)_selectedItem.DisplayHeight + margin * 2
+                );
+                _activeCanvas = Rectangle.Union(_activeCanvas, itemRect);
             }
             else
             {
-                float oldPadding = _canvasPadding;
-                _canvasPadding *= zoomFactor>1f? (zoomFactor + 0.1f): (zoomFactor - 0.1f);
-
-                if (_canvasPadding < MIN_PADDING) _canvasPadding = MIN_PADDING;
-
-                int oldW = _minCanvas.Width;
-                int oldH = _minCanvas.Height;
-
+                int oldW = _activeCanvas.Width;
+                int oldH = _activeCanvas.Height;
                 int newW = (int)(oldW * zoomFactor);
                 int newH = (int)(oldH * zoomFactor);
 
-                if (newW > _CanvasSize && newH > _CanvasSize)
-                {
-                    int dx = (newW - oldW) / 2;
-                    int dy = (newH - oldH) / 2;
+                // 屏幕尺寸限制
+                if (newW > screen.Width) newW = screen.Width;
+                if (newH > screen.Height) newH = screen.Height;
 
-                    _minCanvas = new Rectangle(_minCanvas.X - dx, _minCanvas.Y - dy, newW, newH);
+                int cx = _activeCanvas.X + oldW / 2;
+                int cy = _activeCanvas.Y + oldH / 2;
+
+                int nextX = cx - newW / 2;
+                int nextY = cy - newH / 2;
+
+                if (_items.Count > 0)
+                {
+                    float minX = _items.Min(i => i.X) - margin;
+                    float minY = _items.Min(i => i.Y) - margin;
+                    float maxX = _items.Max(i => i.X + i.DisplayWidth) + margin;
+                    float maxY = _items.Max(i => i.Y + i.DisplayHeight) + margin;
+
+                    if (nextX > minX) nextX = (int)minX;
+                    if (nextY > minY) nextY = (int)minY;
+
+                    if (nextX + newW < maxX) newW = (int)(maxX - nextX);
+                    if (nextY + newH < maxY) newH = (int)(maxY - nextY);
                 }
+                else
+                {
+                    if (newW < _CanvasSize) newW = _CanvasSize;
+                    if (newH < _CanvasSize) newH = _CanvasSize;
+                    nextX = cx - newW / 2;
+                    nextY = cy - newH / 2;
+                }
+
+                if (nextX < screen.Left) nextX = screen.Left;
+                if (nextY < screen.Top) nextY = screen.Top;
+                if (nextX + newW > screen.Right) nextX = screen.Right - newW;
+                if (nextY + newH > screen.Bottom) nextY = screen.Bottom - newH;
+
+                _activeCanvas = new Rectangle(nextX, nextY, newW, newH);
             }
 
             Invalidate();
