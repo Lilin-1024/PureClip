@@ -6,6 +6,12 @@ namespace PureClip
     {
         private Rectangle _activeCanvas;
 
+        private LinkedList<HistoryState> _undoStack = new LinkedList<HistoryState>();
+        private LinkedList<HistoryState> _redoStack = new LinkedList<HistoryState>();
+        private const int MAX_HISTORY = 30;
+
+        private bool _isProcessingUndoRedo = false;
+
         public int _CanvasSize = 300;
         public Form1()
         {
@@ -75,6 +81,8 @@ namespace PureClip
 
         protected override void OnDragDrop(DragEventArgs e)
         {
+            SaveState();
+
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
 
             Point dropPoint = new Point(e.X, e.Y);
@@ -214,6 +222,8 @@ namespace PureClip
 
                 if (clickedItem != null)
                 {
+                    SaveState();
+
                     if (ModifierKeys == Keys.Shift)
                     {
                         if (_selectedItems.Contains(clickedItem))
@@ -325,6 +335,8 @@ namespace PureClip
 
         protected override void OnMouseWheel(MouseEventArgs e)
         {
+            SaveState();
+
             float zoomFactor = e.Delta > 0 ? 1.1f : 0.9f;
             Rectangle screen = Screen.PrimaryScreen.WorkingArea;
             int margin = 20;
@@ -437,7 +449,7 @@ namespace PureClip
                 Invalidate();
             }
 
-            if (e.KeyCode == Keys.Enter)
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.X)
             {
                 if (_currentMode == ToolMode.RectSelect && !_selectionRect.IsEmpty)
                 {
@@ -452,6 +464,28 @@ namespace PureClip
                 HandleSelection(true);
                 _currentMode = ToolMode.Pointer;
                 Invalidate();
+            }
+
+            if (e.Control && !e.Shift && e.KeyCode == Keys.Z)
+            {
+                Undo();
+            }
+
+            if ((e.Control && e.Shift && e.KeyCode == Keys.Z) || (e.Control && e.KeyCode == Keys.Y))
+            {
+                Redo();
+            }
+
+            if (e.KeyCode == Keys.Delete)
+            {
+                if (!_selectionRect.IsEmpty) DeleteInsideSelection();
+                else DeleteSelectedItems();
+            }
+
+            if (e.KeyCode == Keys.K && !_selectionRect.IsEmpty)
+            {
+                KeepOnlySelection();
+                _currentMode = ToolMode.Pointer;
             }
         }
 
@@ -486,6 +520,8 @@ namespace PureClip
         {
             if (_selectionRect.IsEmpty) return;
 
+            SaveState();
+
             List<ClipItem> targets = new List<ClipItem>();
             if (_selectedItems.Count > 0)
             {
@@ -511,6 +547,11 @@ namespace PureClip
 
                 if (!isCopyOnly)
                 {
+                    SaveState();
+
+                    Bitmap newMaster = new Bitmap(target.ImageData);
+                    target.ImageData = newMaster;
+
                     using (Graphics g = Graphics.FromImage(target.ImageData))
                     {
                         g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
@@ -536,6 +577,161 @@ namespace PureClip
             Invalidate();
         }
 
+        private void SaveState()
+        {
+            if (_isProcessingUndoRedo) return;
+
+            _undoStack.AddFirst(new HistoryState(_items, _activeCanvas));
+            _redoStack.Clear();
+
+            if (_undoStack.Count > MAX_HISTORY)
+            {
+                var oldestState = _undoStack.Last.Value;
+
+                DisposeStateIfOrphan(oldestState);
+
+                _undoStack.RemoveLast();
+            }
+        }
+
+        private void DisposeStateIfOrphan(HistoryState state)
+        {
+            foreach (var historyItem in state.ItemsSnapshot)
+            {
+                bool isStillUsedInCurrent = _items.Any(i => i.ImageData == historyItem.ImageData);
+
+                bool isStillInUndoStack = _undoStack.Any(s => s.ItemsSnapshot.Any(i => i.ImageData == historyItem.ImageData));
+
+                if (!isStillUsedInCurrent && !isStillInUndoStack)
+                {
+                    historyItem.ImageData.Dispose();
+                    historyItem.PreviewImage.Dispose();
+                }
+            }
+        }
+
+        private void Undo()
+        {
+            if (_undoStack.Count == 0) return;
+
+            _isProcessingUndoRedo = true;
+
+            _redoStack.AddFirst(new HistoryState(_items, _activeCanvas));
+
+            var state = _undoStack.First.Value;
+            _undoStack.RemoveFirst();
+
+            _items = state.ItemsSnapshot;
+            _activeCanvas = state.CanvasSnapshot;
+
+            _selectedItems.Clear();
+            _isProcessingUndoRedo = false;
+            Invalidate();
+        }
+
+        private void Redo()
+        {
+            if (_redoStack.Count == 0) return;
+
+            _isProcessingUndoRedo = true;
+
+            _undoStack.AddFirst(new HistoryState(_items, _activeCanvas));
+
+            var state = _redoStack.First.Value;
+            _redoStack.RemoveFirst();
+
+            _items = state.ItemsSnapshot;
+            _activeCanvas = state.CanvasSnapshot;
+
+            _selectedItems.Clear();
+            _isProcessingUndoRedo = false;
+            Invalidate();
+        }
+
+        private void DeleteSelectedItems()
+        {
+            if (_selectedItems.Count == 0) return;
+
+            SaveState();
+
+            foreach (var item in _selectedItems)
+            {
+                _items.Remove(item);
+            }
+
+            _selectedItems.Clear();
+
+            Invalidate();
+        }
+
+        private void DeleteInsideSelection()
+        {
+            if (_selectionRect.IsEmpty) return;
+
+            List<ClipItem> targets = new List<ClipItem>();
+            if (_selectedItems.Count > 0) targets.AddRange(_selectedItems);
+            else targets.AddRange(_items.Where(i => new RectangleF(i.X, i.Y, i.DisplayWidth, i.DisplayHeight).IntersectsWith(_selectionRect)));
+
+            if (targets.Count == 0) return;
+
+            SaveState();
+
+            foreach (var target in targets)
+            {
+                Rectangle sourceRect = target.GetInternalRect(_selectionRect);
+                if (sourceRect.Width <= 0 || sourceRect.Height <= 0) continue;
+
+                target.ImageData = new Bitmap(target.ImageData);
+                using (Graphics g = Graphics.FromImage(target.ImageData))
+                {
+                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                    g.FillRectangle(Brushes.Transparent, sourceRect);
+                }
+                target.UpdatePreview();
+            }
+            _selectionRect = RectangleF.Empty;
+            Invalidate();
+        }
+
+        private void KeepOnlySelection()
+        {
+            if (_selectionRect.IsEmpty) return;
+
+            SaveState();
+
+            List<ClipItem> targets = new List<ClipItem>();
+            if (_selectedItems.Count > 0) targets.AddRange(_selectedItems);
+            else targets.AddRange(_items.ToList());
+
+            List<ClipItem> toRemove = new List<ClipItem>();
+
+            foreach (var target in targets)
+            {
+                Rectangle sourceRect = target.GetInternalRect(_selectionRect);
+
+                if (sourceRect.Width <= 0 || sourceRect.Height <= 0)
+                {
+                    toRemove.Add(target);
+                    continue;
+                }
+
+                Bitmap croppedBmp = target.ImageData.Clone(sourceRect, target.ImageData.PixelFormat);
+
+                target.X = target.X + sourceRect.X * target.Scale;
+                target.Y = target.Y + sourceRect.Y * target.Scale;
+                target.ImageData = croppedBmp;
+                target.UpdatePreview();
+            }
+
+            foreach (var item in toRemove)
+            {
+                _items.Remove(item);
+                if (_selectedItems.Contains(item)) _selectedItems.Remove(item);
+            }
+
+            _selectionRect = RectangleF.Empty;
+            Invalidate();
+        }
     }
 
     public class ClipItem
@@ -594,8 +790,24 @@ namespace PureClip
 
         public void UpdatePreview()
         {
-            if (PreviewImage != null) PreviewImage.Dispose();
             PreviewImage = CreatePreview(ImageData, 2000);
+        }
+
+        public ClipItem Clone()
+        {
+            return (ClipItem)this.MemberwiseClone();
+        }
+    }
+
+    public class HistoryState
+    {
+        public List<ClipItem> ItemsSnapshot { get; set; }
+        public Rectangle CanvasSnapshot { get; set; }
+
+        public HistoryState(List<ClipItem> currentItems, Rectangle currentCanvas)
+        {
+            ItemsSnapshot = currentItems.Select(item => item.Clone()).ToList();
+            CanvasSnapshot = currentCanvas;
         }
     }
 }
