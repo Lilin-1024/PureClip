@@ -57,7 +57,7 @@ namespace PureClip
                 try
                 {
                     Bitmap bmp = new Bitmap(path);
-                    var newItem = new ClipItem { ImageData = bmp };
+                    var newItem = new ClipItem(bmp);
 
                     if (bmp.Width > 800) newItem.Scale = 800f / bmp.Width;
 
@@ -106,6 +106,7 @@ namespace PureClip
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Low;
 
             Rectangle activeCanvas = GetCurrentCanvasBounds();
 
@@ -125,7 +126,7 @@ namespace PureClip
 
             foreach (var item in _items)
             {
-                g.DrawImage(item.ImageData, item.X, item.Y, item.DisplayWidth, item.DisplayHeight);
+                g.DrawImage(item.PreviewImage, item.X, item.Y, item.DisplayWidth, item.DisplayHeight);
                 if (item == _selectedItem)
                 {
                     using (Pen p = new Pen(Color.FromArgb(150, 100, 100, 255), 2))
@@ -223,13 +224,37 @@ namespace PureClip
                 float oldWidth = _selectedItem.DisplayWidth;
                 float oldHeight = _selectedItem.DisplayHeight;
 
-                _selectedItem.Scale *= zoomFactor;
-                if (_selectedItem.Scale < 0.01f) _selectedItem.Scale = 0.01f;
+                //图片尺寸限制
+                float nextScale = _selectedItem.Scale * zoomFactor;
+
+                if (nextScale < 0.01f) nextScale = 0.01f;
+
+                float nextWidth = _selectedItem.ImageData.Width * nextScale;
+                float nextHeight = _selectedItem.ImageData.Height * nextScale;
+                int maxAllowedW = screen.Width - margin * 2;
+                int maxAllowedH = screen.Height - margin * 2;
+
+                if (nextWidth > maxAllowedW || nextHeight > maxAllowedH)
+                {
+                    float scaleW = (float)maxAllowedW / _selectedItem.ImageData.Width;
+                    float scaleH = (float)maxAllowedH / _selectedItem.ImageData.Height;
+                    nextScale = Math.Min(scaleW, scaleH);
+                }
+
+                _selectedItem.Scale = nextScale;
 
                 _selectedItem.X -= (_selectedItem.DisplayWidth - oldWidth) / 2f;
                 _selectedItem.Y -= (_selectedItem.DisplayHeight - oldHeight) / 2f;
 
-                // 实时更新画布大小
+                if (_selectedItem.X < screen.Left + margin) _selectedItem.X = screen.Left + margin;
+                if (_selectedItem.Y < screen.Top + margin) _selectedItem.Y = screen.Top + margin;
+
+                if (_selectedItem.X + _selectedItem.DisplayWidth > screen.Right - margin)
+                    _selectedItem.X = screen.Right - margin - _selectedItem.DisplayWidth;
+
+                if (_selectedItem.Y + _selectedItem.DisplayHeight > screen.Bottom - margin)
+                    _selectedItem.Y = screen.Bottom - margin - _selectedItem.DisplayHeight;
+
                 Rectangle itemRect = new Rectangle(
                     (int)_selectedItem.X - margin,
                     (int)_selectedItem.Y - margin,
@@ -322,12 +347,38 @@ namespace PureClip
         public class ClipItem
         {
             public Bitmap ImageData;
+            public Bitmap PreviewImage;
             public float X;
             public float Y;
             public float Scale = 1.0f;
 
             public float DisplayWidth => ImageData.Width * Scale;
             public float DisplayHeight => ImageData.Height * Scale;
+
+            public ClipItem(Bitmap original)
+            {
+                ImageData = original;
+                PreviewImage = CreatePreview(original, 2000);
+            }
+
+            private Bitmap CreatePreview(Bitmap source, int maxSide)
+            {
+                if (source.Width <= maxSide && source.Height <= maxSide)
+                    return new Bitmap(source);
+
+                float ratio = Math.Min((float)maxSide / source.Width, (float)maxSide / source.Height);
+                int newW = (int)(source.Width * ratio);
+                int newH = (int)(source.Height * ratio);
+
+                Bitmap bmp = new Bitmap(newW, newH);
+                using (Graphics g = Graphics.FromImage(bmp))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.DrawImage(source, 0, 0, newW, newH);
+                }
+                return bmp;
+            }
+
             public bool Contains(float mouseX, float mouseY)
             {
                 return mouseX > X && mouseX <= X + DisplayWidth &&
