@@ -1,4 +1,5 @@
 using System.Drawing.Printing;
+using System.Drawing.Drawing2D;
 
 namespace PureClip
 {
@@ -38,7 +39,7 @@ namespace PureClip
             System.Windows.Forms.Timer animationTimer = new System.Windows.Forms.Timer();
             animationTimer.Interval = 100;
             animationTimer.Tick += (s, e) => {
-                if (_currentMode == ToolMode.RectSelect && !_selectionRect.IsEmpty)
+                if (_selectionPath.PointCount > 0)
                 {
                     _dashOffset++;
                     if (_dashOffset > 10) _dashOffset = 0;
@@ -46,6 +47,8 @@ namespace PureClip
                 }
             };
             animationTimer.Start();
+
+            UpdateCursor();
         }
 
         public enum ToolMode
@@ -57,10 +60,13 @@ namespace PureClip
         }
 
         private ToolMode _currentMode = ToolMode.Pointer;
-        private RectangleF _selectionRect = RectangleF.Empty;
         private PointF _selectionStart;
         private bool _isSelecting = false;
         private float _dashOffset = 0;
+
+        private GraphicsPath _selectionPath = new GraphicsPath();
+        private List<PointF> _currentLassoPoints = new List<PointF>();
+        private RectangleF _tempRect = RectangleF.Empty;
 
         protected override CreateParams CreateParams
         {
@@ -184,21 +190,41 @@ namespace PureClip
             }
 
             //绘制虚线框
-            if (!_selectionRect.IsEmpty)
+            if (_selectionPath.PointCount > 0)
             {
                 using (Pen antsPen = new Pen(Color.White, 1))
                 {
-                    antsPen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
+                    antsPen.DashStyle = DashStyle.Dash;
                     antsPen.DashOffset = _dashOffset;
 
-                    e.Graphics.DrawRectangle(Pens.Black, _selectionRect.X, _selectionRect.Y, _selectionRect.Width, _selectionRect.Height);
-                    e.Graphics.DrawRectangle(antsPen, _selectionRect.X, _selectionRect.Y, _selectionRect.Width, _selectionRect.Height);
+                    g.DrawPath(Pens.Black, _selectionPath);
+                    g.DrawPath(antsPen, _selectionPath);
                 }
 
-                /*using (SolidBrush brush = new SolidBrush(Color.FromArgb(20, 0, 100, 100)))
+                using (SolidBrush brush = new SolidBrush(Color.FromArgb(20, 100, 149, 237)))
                 {
-                    e.Graphics.FillRectangle(brush, _selectionRect);
-                }*/
+                    g.FillPath(brush, _selectionPath);
+                }
+            }
+
+            if (_isSelecting)
+            {
+                if (_currentMode == ToolMode.RectSelect && !_tempRect.IsEmpty)
+                {
+                    using (Pen tempPen = new Pen(Color.White, 1))
+                    {
+                        tempPen.DashStyle = DashStyle.Dot;
+                        g.DrawRectangle(Pens.Black, _tempRect.X, _tempRect.Y, _tempRect.Width, _tempRect.Height);
+                        g.DrawRectangle(tempPen, _tempRect.X, _tempRect.Y, _tempRect.Width, _tempRect.Height);
+                    }
+                }
+                else if (_currentMode == ToolMode.Lasso && _currentLassoPoints.Count > 1)
+                {
+                    using (Pen lassoPen = new Pen(Color.Yellow, 1))
+                    {
+                        g.DrawLines(lassoPen, _currentLassoPoints.ToArray());
+                    }
+                }
             }
         }
 
@@ -210,6 +236,7 @@ namespace PureClip
         {
             if (_currentMode == ToolMode.Pointer)
             {
+                base.OnMouseDown(e);
                 ClipItem clickedItem = null;
                 for (int i = _items.Count - 1; i >= 0; i--)
                 {
@@ -259,7 +286,13 @@ namespace PureClip
             {
                 _isSelecting = true;
                 _selectionStart = e.Location;
-                _selectionRect = RectangleF.Empty;
+                _tempRect = RectangleF.Empty;
+            }
+            else if (_currentMode == ToolMode.Lasso)
+            {
+                _isSelecting = true;
+                _currentLassoPoints.Clear();
+                _currentLassoPoints.Add(e.Location);
             }
         }
 
@@ -321,16 +354,38 @@ namespace PureClip
                 float y = Math.Min(_selectionStart.Y, e.Y);
                 float width = Math.Abs(e.X - _selectionStart.X);
                 float height = Math.Abs(e.Y - _selectionStart.Y);
-
-                _selectionRect = new RectangleF(x, y, width, height);
+                _tempRect = new RectangleF(x, y, width, height);
+                Invalidate();
+            }
+            else if (_currentMode == ToolMode.Lasso && _isSelecting)
+            {
+                _currentLassoPoints.Add(e.Location);
                 Invalidate();
             }
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
+            if (_currentMode == ToolMode.RectSelect && _isSelecting)
+            {
+                if (_tempRect.Width > 0 && _tempRect.Height > 0)
+                {
+                    _selectionPath.AddRectangle(_tempRect);
+                }
+                _tempRect = RectangleF.Empty;
+            }
+            else if (_currentMode == ToolMode.Lasso && _isSelecting)
+            {
+                if (_currentLassoPoints.Count > 2)
+                {
+                    _selectionPath.AddPolygon(_currentLassoPoints.ToArray());
+                }
+                _currentLassoPoints.Clear();
+            }
+
             _draggingItem = null;
             _isSelecting = false;
+            Invalidate();
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -439,30 +494,34 @@ namespace PureClip
             {
                 _currentMode = (ToolMode)(((int)_currentMode + 1) % 4);
 
-                //_selectionRect = RectangleF.Empty;
+                UpdateCursor();
                 Invalidate();
             }
 
             if (e.KeyCode == Keys.D)
             {
-                _selectionRect = RectangleF.Empty;
+                _selectionPath.Reset();
+                _tempRect = RectangleF.Empty;
+                _currentLassoPoints.Clear();
                 Invalidate();
             }
 
             if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.X)
             {
-                if (_currentMode == ToolMode.RectSelect && !_selectionRect.IsEmpty)
+                if (_selectionPath.PointCount > 0)
                 {
                     HandleSelection();
                 }
                 _currentMode = ToolMode.Pointer;
+                UpdateCursor();
                 Invalidate();
             }
 
-            if (e.KeyCode == Keys.C && _currentMode == ToolMode.RectSelect)
+            if (e.KeyCode == Keys.C && _selectionPath.PointCount > 0)
             {
                 HandleSelection(true);
                 _currentMode = ToolMode.Pointer;
+                UpdateCursor();
                 Invalidate();
             }
 
@@ -478,14 +537,15 @@ namespace PureClip
 
             if (e.KeyCode == Keys.Delete)
             {
-                if (!_selectionRect.IsEmpty) DeleteInsideSelection();
+                if (_selectionPath.PointCount > 0) DeleteInsideSelection();
                 else DeleteSelectedItems();
             }
 
-            if (e.KeyCode == Keys.K && !_selectionRect.IsEmpty)
+            if (e.KeyCode == Keys.K && _selectionPath.PointCount > 0)
             {
                 KeepOnlySelection();
                 _currentMode = ToolMode.Pointer;
+                UpdateCursor();
             }
         }
 
@@ -518,21 +578,20 @@ namespace PureClip
 
         private void HandleSelection(bool isCopyOnly = false)
         {
-            if (_selectionRect.IsEmpty) return;
+            if (_selectionPath.PointCount == 0) return;
 
             SaveState();
 
+            RectangleF bounds = _selectionPath.GetBounds();
+
             List<ClipItem> targets = new List<ClipItem>();
-            if (_selectedItems.Count > 0)
-            {
-                targets.AddRange(_selectedItems);
-            }
+            if (_selectedItems.Count > 0) targets.AddRange(_selectedItems);
             else
             {
                 foreach (var item in _items)
                 {
                     RectangleF itemRect = new RectangleF(item.X, item.Y, item.DisplayWidth, item.DisplayHeight);
-                    if (itemRect.IntersectsWith(_selectionRect)) targets.Add(item);
+                    if (itemRect.IntersectsWith(bounds)) targets.Add(item);
                 }
             }
 
@@ -540,40 +599,63 @@ namespace PureClip
 
             foreach (var target in targets)
             {
-                Rectangle sourceRect = target.GetInternalRect(_selectionRect);
-                if (sourceRect.Width <= 0 || sourceRect.Height <= 0) continue;
+                //转换到当前图片坐标系
+                GraphicsPath localPath = (GraphicsPath)_selectionPath.Clone();
+                Matrix matrix = new Matrix();
+                matrix.Translate(-target.X, -target.Y);
+                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                localPath.Transform(matrix);
 
-                Bitmap croppedBmp = target.ImageData.Clone(sourceRect, target.ImageData.PixelFormat);
+                RectangleF localPathBounds = localPath.GetBounds();
+                Rectangle imageRect = new Rectangle(0, 0, target.ImageData.Width, target.ImageData.Height);
+                RectangleF intersectRectF = RectangleF.Intersect(localPathBounds, imageRect);
+
+                if (intersectRectF.Width <= 0 || intersectRectF.Height <= 0) continue;
+                Rectangle cutRect = Rectangle.Round(intersectRectF);
+
+                Bitmap croppedBmp = new Bitmap(cutRect.Width, cutRect.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using (Graphics gNew = Graphics.FromImage(croppedBmp))
+                {
+                    Matrix moveBack = new Matrix();
+                    moveBack.Translate(-cutRect.X, -cutRect.Y);
+                    localPath.Transform(moveBack);
+
+                    gNew.SetClip(localPath);
+                    gNew.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+
+                    gNew.DrawImage(target.ImageData, new Rectangle(0, 0, cutRect.Width, cutRect.Height), cutRect, GraphicsUnit.Pixel);
+                }
 
                 if (!isCopyOnly)
                 {
-                    SaveState();
+                    GraphicsPath erasePath = (GraphicsPath)_selectionPath.Clone();
+                    Matrix m2 = new Matrix();
+                    m2.Translate(-target.X, -target.Y);
+                    m2.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                    erasePath.Transform(m2);
 
-                    Bitmap newMaster = new Bitmap(target.ImageData);
-                    target.ImageData = newMaster;
-
-                    using (Graphics g = Graphics.FromImage(target.ImageData))
+                    using (Graphics gOld = Graphics.FromImage(target.ImageData))
                     {
-                        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-                        g.FillRectangle(Brushes.Transparent, sourceRect);
+                        gOld.SetClip(erasePath);
+                        gOld.CompositingMode = CompositingMode.SourceCopy;
+                        gOld.FillRectangle(Brushes.Transparent, 0, 0, target.ImageData.Width, target.ImageData.Height); // 填透明
                     }
                     target.UpdatePreview();
                 }
 
                 var newItem = new ClipItem(croppedBmp);
-                newItem.X = target.X + sourceRect.X * target.Scale;
-                newItem.Y = target.Y + sourceRect.Y * target.Scale;
+                newItem.X = target.X + cutRect.X * target.Scale;
+                newItem.Y = target.Y + cutRect.Y * target.Scale;
                 newItem.Scale = target.Scale;
 
                 newCreatedItems.Add(newItem);
             }
 
             _items.AddRange(newCreatedItems);
-
             _selectedItems.Clear();
             _selectedItems.AddRange(newCreatedItems);
 
-            _selectionRect = RectangleF.Empty;
+            _selectionPath.Reset();
             Invalidate();
         }
 
@@ -625,6 +707,9 @@ namespace PureClip
             _activeCanvas = state.CanvasSnapshot;
 
             _selectedItems.Clear();
+            _selectionPath.Reset();
+            _currentLassoPoints.Clear();
+            _tempRect = RectangleF.Empty;
             _isProcessingUndoRedo = false;
             Invalidate();
         }
@@ -644,6 +729,9 @@ namespace PureClip
             _activeCanvas = state.CanvasSnapshot;
 
             _selectedItems.Clear();
+            _selectionPath.Reset();
+            _currentLassoPoints.Clear();
+            _tempRect = RectangleF.Empty;
             _isProcessingUndoRedo = false;
             Invalidate();
         }
@@ -666,11 +754,19 @@ namespace PureClip
 
         private void DeleteInsideSelection()
         {
-            if (_selectionRect.IsEmpty) return;
+            if (_selectionPath.PointCount == 0) return;
 
             List<ClipItem> targets = new List<ClipItem>();
             if (_selectedItems.Count > 0) targets.AddRange(_selectedItems);
-            else targets.AddRange(_items.Where(i => new RectangleF(i.X, i.Y, i.DisplayWidth, i.DisplayHeight).IntersectsWith(_selectionRect)));
+            else
+            {
+                RectangleF bounds = _selectionPath.GetBounds();
+                foreach (var item in _items)
+                {
+                    RectangleF itemRect = new RectangleF(item.X, item.Y, item.DisplayWidth, item.DisplayHeight);
+                    if (itemRect.IntersectsWith(bounds)) targets.Add(item);
+                }
+            }
 
             if (targets.Count == 0) return;
 
@@ -678,24 +774,38 @@ namespace PureClip
 
             foreach (var target in targets)
             {
-                Rectangle sourceRect = target.GetInternalRect(_selectionRect);
-                if (sourceRect.Width <= 0 || sourceRect.Height <= 0) continue;
+                GraphicsPath localPath = (GraphicsPath)_selectionPath.Clone();
+                Matrix matrix = new Matrix();
+                matrix.Translate(-target.X, -target.Y);
+                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                localPath.Transform(matrix);
 
-                target.ImageData = new Bitmap(target.ImageData);
-                using (Graphics g = Graphics.FromImage(target.ImageData))
+                RectangleF localPathBounds = localPath.GetBounds();
+                Rectangle imageRect = new Rectangle(0, 0, target.ImageData.Width, target.ImageData.Height);
+
+                if (!localPathBounds.IntersectsWith(imageRect)) continue;
+
+                Bitmap newBmp = new Bitmap(target.ImageData);
+
+                using (Graphics g = Graphics.FromImage(newBmp))
                 {
-                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-                    g.FillRectangle(Brushes.Transparent, sourceRect);
+                    g.SetClip(localPath);
+                    g.CompositingMode = CompositingMode.SourceCopy;
+                    g.FillRectangle(Brushes.Transparent, 0, 0, newBmp.Width, newBmp.Height);
                 }
+
+                target.ImageData = newBmp;
+
                 target.UpdatePreview();
             }
-            _selectionRect = RectangleF.Empty;
+
+            _selectionPath.Reset();
             Invalidate();
         }
 
         private void KeepOnlySelection()
         {
-            if (_selectionRect.IsEmpty) return;
+            if (_selectionPath.PointCount == 0) return;
 
             SaveState();
 
@@ -703,34 +813,88 @@ namespace PureClip
             if (_selectedItems.Count > 0) targets.AddRange(_selectedItems);
             else targets.AddRange(_items.ToList());
 
-            List<ClipItem> toRemove = new List<ClipItem>();
+            List<ClipItem> itemsToRemove = new List<ClipItem>();
 
             foreach (var target in targets)
             {
-                Rectangle sourceRect = target.GetInternalRect(_selectionRect);
+                GraphicsPath localPath = (GraphicsPath)_selectionPath.Clone();
+                Matrix matrix = new Matrix();
+                matrix.Translate(-target.X, -target.Y);
+                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                localPath.Transform(matrix);
 
-                if (sourceRect.Width <= 0 || sourceRect.Height <= 0)
+                RectangleF localPathBounds = localPath.GetBounds();
+                Rectangle imageRect = new Rectangle(0, 0, target.ImageData.Width, target.ImageData.Height);
+                RectangleF intersectRectF = RectangleF.Intersect(localPathBounds, imageRect);
+
+                if (intersectRectF.Width <= 0 || intersectRectF.Height <= 0)
                 {
-                    toRemove.Add(target);
+                    itemsToRemove.Add(target);
                     continue;
                 }
 
-                Bitmap croppedBmp = target.ImageData.Clone(sourceRect, target.ImageData.PixelFormat);
+                Rectangle cutRect = Rectangle.Round(intersectRectF);
 
-                target.X = target.X + sourceRect.X * target.Scale;
-                target.Y = target.Y + sourceRect.Y * target.Scale;
+                if (cutRect.Width <= 0) cutRect.Width = 1;
+                if (cutRect.Height <= 0) cutRect.Height = 1;
+
+                Bitmap croppedBmp = new Bitmap(cutRect.Width, cutRect.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+
+                using (Graphics g = Graphics.FromImage(croppedBmp))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.CompositingQuality = CompositingQuality.HighQuality;
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                    Matrix moveBack = new Matrix();
+                    moveBack.Translate(-cutRect.X, -cutRect.Y);
+                    localPath.Transform(moveBack);
+
+                    g.SetClip(localPath);
+
+                    g.DrawImage(target.ImageData,
+                        new Rectangle(0, 0, cutRect.Width, cutRect.Height),
+                        cutRect,
+                        GraphicsUnit.Pixel);
+                }
+
+                target.X += cutRect.X * target.Scale;
+                target.Y += cutRect.Y * target.Scale;
+
                 target.ImageData = croppedBmp;
                 target.UpdatePreview();
             }
 
-            foreach (var item in toRemove)
+            foreach (var item in itemsToRemove)
             {
                 _items.Remove(item);
                 if (_selectedItems.Contains(item)) _selectedItems.Remove(item);
             }
 
-            _selectionRect = RectangleF.Empty;
+            _selectionPath.Reset();
             Invalidate();
+        }
+
+        private void UpdateCursor()
+        {
+            switch (_currentMode)
+            {
+                case ToolMode.Pointer:
+                    this.Cursor = Cursors.Default;
+                    break;
+                case ToolMode.RectSelect:
+                    this.Cursor = Cursors.Cross;
+                    break;
+                case ToolMode.Lasso:
+                    this.Cursor = Cursors.Help;
+                    break;
+                case ToolMode.MagicWand:
+                    this.Cursor = Cursors.Hand;
+                    break;
+                default:
+                    this.Cursor = Cursors.Default;
+                    break;
+            }
         }
     }
 
