@@ -599,11 +599,10 @@ namespace PureClip
 
             foreach (var target in targets)
             {
-                //转换到当前图片坐标系
                 GraphicsPath localPath = (GraphicsPath)_selectionPath.Clone();
                 Matrix matrix = new Matrix();
-                matrix.Translate(-target.X, -target.Y);
-                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                matrix.Translate(-target.X, -target.Y, MatrixOrder.Append);
+                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale, MatrixOrder.Append);
                 localPath.Transform(matrix);
 
                 RectangleF localPathBounds = localPath.GetBounds();
@@ -613,11 +612,15 @@ namespace PureClip
                 if (intersectRectF.Width <= 0 || intersectRectF.Height <= 0) continue;
                 Rectangle cutRect = Rectangle.Round(intersectRectF);
 
+                if (cutRect.Width < 1) cutRect.Width = 1;
+                if (cutRect.Height < 1) cutRect.Height = 1;
+
                 Bitmap croppedBmp = new Bitmap(cutRect.Width, cutRect.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                croppedBmp.SetResolution(target.ImageData.HorizontalResolution, target.ImageData.VerticalResolution);
                 using (Graphics gNew = Graphics.FromImage(croppedBmp))
                 {
                     Matrix moveBack = new Matrix();
-                    moveBack.Translate(-cutRect.X, -cutRect.Y);
+                    moveBack.Translate(-cutRect.X, -cutRect.Y, MatrixOrder.Append);
                     localPath.Transform(moveBack);
 
                     gNew.SetClip(localPath);
@@ -630,9 +633,12 @@ namespace PureClip
                 {
                     GraphicsPath erasePath = (GraphicsPath)_selectionPath.Clone();
                     Matrix m2 = new Matrix();
-                    m2.Translate(-target.X, -target.Y);
-                    m2.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                    m2.Translate(-target.X, -target.Y, MatrixOrder.Append);
+                    m2.Scale(1.0f / target.Scale, 1.0f / target.Scale, MatrixOrder.Append);
                     erasePath.Transform(m2);
+
+                    Bitmap newMaster = new Bitmap(target.ImageData);
+                    newMaster.SetResolution(target.ImageData.HorizontalResolution, target.ImageData.VerticalResolution);
 
                     using (Graphics gOld = Graphics.FromImage(target.ImageData))
                     {
@@ -640,6 +646,8 @@ namespace PureClip
                         gOld.CompositingMode = CompositingMode.SourceCopy;
                         gOld.FillRectangle(Brushes.Transparent, 0, 0, target.ImageData.Width, target.ImageData.Height); // 填透明
                     }
+                    target.ImageData.Dispose();
+                    target.ImageData = newMaster;
                     target.UpdatePreview();
                 }
 
@@ -776,8 +784,8 @@ namespace PureClip
             {
                 GraphicsPath localPath = (GraphicsPath)_selectionPath.Clone();
                 Matrix matrix = new Matrix();
-                matrix.Translate(-target.X, -target.Y);
-                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                matrix.Translate(-target.X, -target.Y, MatrixOrder.Append);
+                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale, MatrixOrder.Append);
                 localPath.Transform(matrix);
 
                 RectangleF localPathBounds = localPath.GetBounds();
@@ -786,6 +794,8 @@ namespace PureClip
                 if (!localPathBounds.IntersectsWith(imageRect)) continue;
 
                 Bitmap newBmp = new Bitmap(target.ImageData);
+
+                newBmp.SetResolution(target.ImageData.HorizontalResolution, target.ImageData.VerticalResolution);
 
                 using (Graphics g = Graphics.FromImage(newBmp))
                 {
@@ -819,8 +829,8 @@ namespace PureClip
             {
                 GraphicsPath localPath = (GraphicsPath)_selectionPath.Clone();
                 Matrix matrix = new Matrix();
-                matrix.Translate(-target.X, -target.Y);
-                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale);
+                matrix.Translate(-target.X, -target.Y, MatrixOrder.Append);
+                matrix.Scale(1.0f / target.Scale, 1.0f / target.Scale, MatrixOrder.Append);
                 localPath.Transform(matrix);
 
                 RectangleF localPathBounds = localPath.GetBounds();
