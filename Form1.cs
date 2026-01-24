@@ -55,7 +55,6 @@ namespace PureClip
         {
             Pointer,
             RectSelect,
-            MagicWand,
             Lasso
         }
 
@@ -492,7 +491,7 @@ namespace PureClip
 
             if (e.KeyCode == Keys.W)
             {
-                _currentMode = (ToolMode)(((int)_currentMode + 1) % 4);
+                _currentMode = (ToolMode)(((int)_currentMode + 1) % 3);
 
                 UpdateCursor();
                 Invalidate();
@@ -897,9 +896,6 @@ namespace PureClip
                     break;
                 case ToolMode.Lasso:
                     this.Cursor = Cursors.Help;
-                    break;
-                case ToolMode.MagicWand:
-                    this.Cursor = Cursors.Hand;
                     break;
                 default:
                     this.Cursor = Cursors.Default;
