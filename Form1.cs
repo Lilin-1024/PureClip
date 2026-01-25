@@ -1131,11 +1131,11 @@ namespace PureClip
                     Bitmap newMaster = new Bitmap(target.ImageData);
                     newMaster.SetResolution(target.ImageData.HorizontalResolution, target.ImageData.VerticalResolution);
 
-                    using (Graphics gOld = Graphics.FromImage(target.ImageData))
+                    using (Graphics gOld = Graphics.FromImage(newMaster))
                     {
                         gOld.SetClip(erasePath);
                         gOld.CompositingMode = CompositingMode.SourceCopy;
-                        gOld.FillRectangle(Brushes.Transparent, 0, 0, target.ImageData.Width, target.ImageData.Height);
+                        gOld.FillRectangle(Brushes.Transparent, 0, 0, newMaster.Width, newMaster.Height);
                     }
                     target.ImageData.Dispose();
                     target.ImageData = newMaster;
