@@ -246,6 +246,10 @@ namespace PureClip
             _contextMenuItem = new ContextMenuStrip();
             _contextMenuItem.RenderMode = ToolStripRenderMode.System;
 
+            var itemCopyItem = new ToolStripMenuItem("Copy (C)", null, (s, e) => {
+                DuplicateSelectedItems();
+            });
+
             var itemRotate = new ToolStripMenuItem("Rotate (R)", null, (s, e) => {
                 StartRotation();
             });
@@ -273,6 +277,8 @@ namespace PureClip
                 Invalidate();
             });
 
+            _contextMenuItem.Items.Add(itemCopyItem);
+            _contextMenuItem.Items.Add(new ToolStripSeparator());
             _contextMenuItem.Items.Add(itemRotate);
             _contextMenuItem.Items.Add(new ToolStripSeparator());
             _contextMenuItem.Items.Add(itemMirror);
@@ -485,9 +491,9 @@ namespace PureClip
                     guidePen.DashStyle = DashStyle.Dash;
                     g.DrawLine(guidePen, _rotationCenter, mousePos);
 
-                    int r = 5;
+                    /*int r = 5;
                     g.DrawLine(Pens.White, _rotationCenter.X - r, _rotationCenter.Y, _rotationCenter.X + r, _rotationCenter.Y);
-                    g.DrawLine(Pens.White, _rotationCenter.X, _rotationCenter.Y - r, _rotationCenter.X, _rotationCenter.Y + r);
+                    g.DrawLine(Pens.White, _rotationCenter.X, _rotationCenter.Y - r, _rotationCenter.X, _rotationCenter.Y + r);*/
                 }
             }
         }
@@ -539,7 +545,6 @@ namespace PureClip
 
                 if (clickedItem != null)
                 {
-                    SaveState();
 
                     if (ModifierKeys == Keys.Shift)
                     {
@@ -633,7 +638,7 @@ namespace PureClip
                 return;
             }
 
-            if (_currentMode == ToolMode.Pointer && _draggingItem != null && e.Button == MouseButtons.Left && !_isRotating)
+            if (_currentMode == ToolMode.Pointer && _draggingItem != null && e.Button == MouseButtons.Left && !_isRotating && _selectedItems.Any())
             {
                 Point currentMousePos = Cursor.Position;
                 float dx = currentMousePos.X - _lastMousePos.X;
@@ -934,12 +939,19 @@ namespace PureClip
                 Invalidate();
             }
 
-            if (e.KeyCode == Keys.C && _selectionPath.PointCount > 0)
+            if (e.KeyCode == Keys.C)
             {
-                HandleSelection(true);
-                _currentMode = ToolMode.Pointer;
-                UpdateCursor();
-                Invalidate();
+                if (_selectionPath.PointCount > 0)
+                {
+                    HandleSelection(true);
+                    _currentMode = ToolMode.Pointer;
+                    UpdateCursor();
+                    Invalidate();
+                }
+                else if (_selectedItems.Count > 0)
+                {
+                    DuplicateSelectedItems();
+                }
             }
 
             if (e.Control && !e.Shift && e.KeyCode == Keys.Z)
@@ -1123,7 +1135,7 @@ namespace PureClip
                     {
                         gOld.SetClip(erasePath);
                         gOld.CompositingMode = CompositingMode.SourceCopy;
-                        gOld.FillRectangle(Brushes.Transparent, 0, 0, target.ImageData.Width, target.ImageData.Height); // ÌîÍ¸Ã÷
+                        gOld.FillRectangle(Brushes.Transparent, 0, 0, target.ImageData.Width, target.ImageData.Height);
                     }
                     target.ImageData.Dispose();
                     target.ImageData = newMaster;
@@ -1143,6 +1155,47 @@ namespace PureClip
             _selectedItems.AddRange(newCreatedItems);
 
             _selectionPath.Reset();
+            Invalidate();
+        }
+
+        private void DuplicateSelectedItems()
+        {
+            if (_selectedItems.Count == 0) return;
+
+            SaveState();
+
+            List<ClipItem> newItems = new List<ClipItem>();
+
+            foreach (var item in _selectedItems)
+            {
+                ClipItem clonedItem = item.Clone();
+
+                clonedItem.X += 20;
+                clonedItem.Y += 20;
+
+                _items.Add(clonedItem);
+                newItems.Add(clonedItem);
+            }
+
+            _selectedItems.Clear();
+            _selectedItems.AddRange(newItems);
+
+            //À©Õ¹»­²¼
+            int margin = _CanvasMargin;
+            foreach (var item in newItems)
+            {
+                RectangleF bounds = item.GetRotatedBounds();
+
+                Rectangle boundsWithMargin = new Rectangle(
+                    (int)bounds.X - margin,
+                    (int)bounds.Y - margin,
+                    (int)bounds.Width + margin * 2,
+                    (int)bounds.Height + margin * 2
+                );
+
+                _activeCanvas = Rectangle.Union(_activeCanvas, boundsWithMargin);
+            }
+
             Invalidate();
         }
 
@@ -1702,7 +1755,17 @@ namespace PureClip
 
         public ClipItem Clone()
         {
-            return (ClipItem)this.MemberwiseClone();
+            Bitmap newBmp = new Bitmap(this.ImageData);
+            newBmp.SetResolution(this.ImageData.HorizontalResolution, this.ImageData.VerticalResolution);
+
+            ClipItem newItem = new ClipItem(newBmp);
+
+            newItem.X = this.X;
+            newItem.Y = this.Y;
+            newItem.Scale = this.Scale;
+            newItem.Rotation = this.Rotation;
+
+            return newItem;
         }
     }
 
