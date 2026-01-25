@@ -367,6 +367,7 @@ namespace PureClip
             Rectangle screen = Screen.PrimaryScreen.WorkingArea;
             return Rectangle.Intersect(_activeCanvas, screen);
         }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
@@ -576,8 +577,31 @@ namespace PureClip
                     if (_initialItemRotations.ContainsKey(item))
                     {
                         float originalAngle = _initialItemRotations[item];
-                        item.Rotation = originalAngle + angleDelta;
+                        float finalAngle = originalAngle + angleDelta;
+
+                        if (ModifierKeys == Keys.Shift)
+                        {
+                            finalAngle = (float)Math.Round(finalAngle / 45.0) * 45.0f;
+                        }
+
+                        item.Rotation = finalAngle;
                     }
+                }
+
+                //À©Õ¹»­²¼
+                int margin = _CanvasMargin;
+                foreach (var item in _selectedItems)
+                {
+                    RectangleF bounds = item.GetRotatedBounds();
+
+                    Rectangle boundsWithMargin = new Rectangle(
+                        (int)bounds.X - margin,
+                        (int)bounds.Y - margin,
+                        (int)bounds.Width + margin * 2,
+                        (int)bounds.Height + margin * 2
+                    );
+
+                    _activeCanvas = Rectangle.Union(_activeCanvas, boundsWithMargin);
                 }
 
                 Invalidate();
@@ -837,7 +861,21 @@ namespace PureClip
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Escape) Application.Exit();
+            if (e.KeyCode == Keys.Escape)
+            {
+                var result = MessageBox.Show(
+                    this,
+                    "Are you sure you want to exit?",
+                    "Exit Confirmation",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    Application.Exit();
+                }
+            }
 
             if (e.KeyCode == Keys.W)
             {
@@ -1366,6 +1404,48 @@ namespace PureClip
             Rectangle result = Rectangle.Intersect(imageBounds, new Rectangle((int)localX, (int)localY, (int)localW, (int)localH));
 
             return result;
+        }
+
+        public RectangleF GetRotatedBounds()
+        {
+            if (Rotation == 0)
+            {
+                return new RectangleF(X, Y, DisplayWidth, DisplayHeight);
+            }
+
+            PointF center = this.Center;
+
+            float halfW = DisplayWidth / 2f;
+            float halfH = DisplayHeight / 2f;
+            PointF[] corners = new PointF[]
+            {
+            new PointF(-halfW, -halfH),
+            new PointF(halfW, -halfH),
+            new PointF(halfW, halfH),
+            new PointF(-halfW, halfH)
+            };
+            double angleRad = this.Rotation * Math.PI / 180.0;
+            double cos = Math.Cos(angleRad);
+            double sin = Math.Sin(angleRad);
+
+            float minX = float.MaxValue, minY = float.MaxValue;
+            float maxX = float.MinValue, maxY = float.MinValue;
+
+            foreach (var p in corners)
+            {
+                float rotX = (float)(p.X * cos - p.Y * sin);
+                float rotY = (float)(p.X * sin + p.Y * cos);
+
+                float worldX = rotX + center.X;
+                float worldY = rotY + center.Y;
+
+                if (worldX < minX) minX = worldX;
+                if (worldX > maxX) maxX = worldX;
+                if (worldY < minY) minY = worldY;
+                if (worldY > maxY) maxY = worldY;
+            }
+
+            return new RectangleF(minX, minY, maxX - minX, maxY - minY);
         }
 
         public void UpdatePreview()
