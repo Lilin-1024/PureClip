@@ -159,7 +159,10 @@ namespace PureClip
             itemSettings.DropDownItems.Add(subTopMost);
 
             var itemExport = new ToolStripMenuItem("Export Image...", null, (s, e) => {
-                MessageBox.Show("Export function to be implemented.", "PureClip");
+                if (ShowExportDialog(out ExportOptions options, out string path))
+                {
+                    RenderExportImage(_activeCanvas, _items, null, options, path);
+                }
             });
 
             var itemExit = new ToolStripMenuItem("Exit", null, (s, e) => {
@@ -217,6 +220,16 @@ namespace PureClip
                 Invalidate();
             });
 
+            var itemExportSelection = new ToolStripMenuItem("Export Selection...", null, (s, e) => {
+                RectangleF bounds = _selectionPath.GetBounds();
+
+                if (ShowExportDialog(out ExportOptions options, out string path))
+                {
+                    RenderExportImage(bounds, _items, _selectionPath, options, path);
+                    AfterSelectionAction();
+                }
+            });
+
             _contextMenuSelection.Items.Add(itemCopy);
             _contextMenuSelection.Items.Add(new ToolStripSeparator());
             _contextMenuSelection.Items.Add(itemCut);
@@ -226,6 +239,8 @@ namespace PureClip
             _contextMenuSelection.Items.Add(itemCrop);
             _contextMenuSelection.Items.Add(new ToolStripSeparator());
             _contextMenuSelection.Items.Add(itemDeselect);
+            _contextMenuSelection.Items.Add(new ToolStripSeparator());
+            _contextMenuSelection.Items.Add(itemExportSelection);
 
             //图片菜单
             _contextMenuItem = new ContextMenuStrip();
@@ -240,7 +255,17 @@ namespace PureClip
             itemMirror.DropDownItems.Add("Vertical", null, (s, e) => RotateSelectedItems(RotateFlipType.RotateNoneFlipY));
 
             var itemExportItem = new ToolStripMenuItem("Export Image...", null, (s, e) => {
-                MessageBox.Show("Selected image(s) export to be implemented.", "PureClip");
+                if (_selectedItems.Count == 0) return;
+                RectangleF unionBounds = _selectedItems[0].GetRotatedBounds();
+                for (int i = 1; i < _selectedItems.Count; i++)
+                {
+                    unionBounds = RectangleF.Union(unionBounds, _selectedItems[i].GetRotatedBounds());
+                }
+
+                if (ShowExportDialog(out ExportOptions options, out string path))
+                {
+                    RenderExportImage(unionBounds, _selectedItems, null, options, path);
+                }
             });
 
             var itemDeleteItem = new ToolStripMenuItem("Delete", null, (s, e) => {
@@ -1337,6 +1362,192 @@ namespace PureClip
                     break;
             }
         }
+
+        private bool ShowExportDialog(out ExportOptions options, out string filePath)
+        {
+            ExportOptions tempOptions = new ExportOptions();
+            options = new ExportOptions();
+            filePath = "";
+
+            using (Form form = new Form())
+            {
+                form.Text = "Export Image";
+                form.Size = new Size(350, 320);
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.StartPosition = FormStartPosition.CenterParent;
+                form.MaximizeBox = false;
+                form.MinimizeBox = false;
+                form.TopMost = this.TopMost;
+
+                int y = 20;
+                int x = 20;
+                int spacing = 35;
+
+                // 格式
+                Label lblFormat = new Label() { Text = "Format:", Location = new Point(x, y), AutoSize = true };
+                RadioButton rbPng = new RadioButton() { Text = "PNG", Location = new Point(x + 80, y), Checked = true, AutoSize = true };
+                RadioButton rbJpg = new RadioButton() { Text = "JPG", Location = new Point(x + 190, y), AutoSize = true };
+                form.Controls.AddRange(new Control[] { lblFormat, rbPng, rbJpg });
+
+                y += spacing;
+
+                // 背景
+                CheckBox chkBg = new CheckBox() { Text = "Include Background", Location = new Point(x, y), Checked = true, AutoSize = true, Width = 300 };
+                form.Controls.Add(chkBg);
+
+                rbJpg.CheckedChanged += (s, e) => {
+                    if (rbJpg.Checked) { chkBg.Checked = true; chkBg.Enabled = false; }
+                    else { chkBg.Enabled = true; }
+                };
+
+                y += spacing;
+
+                // 边框
+                CheckBox chkBorder = new CheckBox() { Text = "Draw Border", Location = new Point(x, y), Checked = false, AutoSize = true, Width = 300 };
+                form.Controls.Add(chkBorder);
+
+                y += spacing;
+
+                // 缩放
+                Label lblScale = new Label() { Text = "Scale:", Location = new Point(x, y), AutoSize = true };
+
+                ComboBox cmbScale = new ComboBox()
+                {
+                    Location = new Point(x + 80, y - 3),
+                    Width = 100,
+                    DropDownStyle = ComboBoxStyle.DropDown
+                };
+
+                cmbScale.Items.AddRange(new object[] { "50%", "100%", "150%", "200%", "300%", "400%" });
+                cmbScale.Text = "100%";
+
+                form.Controls.AddRange(new Control[] { lblScale, cmbScale });
+                y += spacing * 2;
+
+
+                Button btnSave = new Button() { Text = "Export", DialogResult = DialogResult.None, Location = new Point(160, y), Width = 150, Height = 40 }; // DialogResult设为None，我们需要手动校验
+                Button btnCancel = new Button() { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(20, y), Width = 100, Height = 40 };
+                form.Controls.AddRange(new Control[] { btnSave, btnCancel });
+                form.AcceptButton = btnSave;
+                form.CancelButton = btnCancel;
+
+                btnSave.Click += (s, e) => {
+                    string input = cmbScale.Text.Trim().Replace("%", "");
+                    if (int.TryParse(input, out int scaleVal))
+                    {
+                        if (scaleVal < 1 || scaleVal > 2000)
+                        {
+                            MessageBox.Show("Scale must be between 1% and 2000%.", "Invalid Value");
+                            return;
+                        }
+
+                        tempOptions.ScalePercentage = scaleVal;
+                    }
+                    else
+                    {
+                        MessageBox.Show("Please enter a valid number for Scale.", "Invalid Input");
+                        return;
+                    }
+
+                    tempOptions.IsPng = rbPng.Checked;
+                    tempOptions.IncludeBackground = chkBg.Checked;
+                    tempOptions.DrawBorder = chkBorder.Checked;
+
+                    form.DialogResult = DialogResult.OK;
+                };
+
+                if (form.ShowDialog(this) == DialogResult.OK)
+                {
+                    using (SaveFileDialog sfd = new SaveFileDialog())
+                    {
+                        sfd.Filter = tempOptions.IsPng ? "PNG Image|*.png" : "JPEG Image|*.jpg";
+                        sfd.FileName = "PureClip_Export_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+                        if (sfd.ShowDialog() == DialogResult.OK)
+                        {
+                            filePath = sfd.FileName;
+                            options = tempOptions;
+                            return true;
+                        }
+                    }
+                }
+            }
+            options = null;
+            return false;
+        }
+
+        private void RenderExportImage(RectangleF sourceBounds, List<ClipItem> itemsToDraw, GraphicsPath clipPath, ExportOptions options, string filePath)
+        {
+            float scaleFactor = options.ScalePercentage / 100f;
+
+            int width = (int)Math.Ceiling(sourceBounds.Width * scaleFactor);
+            int height = (int)Math.Ceiling(sourceBounds.Height * scaleFactor);
+
+            if (width < 1) width = 1;
+            if (height < 1) height = 1;
+
+            using (Bitmap exportBmp = new Bitmap(width, height))
+            {
+                if (options.IsPng && !options.IncludeBackground)
+                {
+                }
+                else
+                {
+                    using (Graphics gBg = Graphics.FromImage(exportBmp))
+                    {
+                        gBg.Clear(options.IncludeBackground ? _canvasColor : Color.Black);
+                    }
+                }
+
+                using (Graphics g = Graphics.FromImage(exportBmp))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.SmoothingMode = SmoothingMode.HighQuality;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    g.CompositingQuality = CompositingQuality.HighQuality;
+
+                    g.TranslateTransform(-sourceBounds.X, -sourceBounds.Y, MatrixOrder.Append);
+
+                    g.ScaleTransform(scaleFactor, scaleFactor, MatrixOrder.Append);
+
+                    if (clipPath != null && clipPath.PointCount > 0)
+                    {
+                        g.SetClip(clipPath);
+                    }
+
+                    foreach (var item in itemsToDraw)
+                    {
+                        GraphicsState state = g.Save();
+
+                        PointF center = item.Center;
+                        g.TranslateTransform(center.X, center.Y);
+                        g.RotateTransform(item.Rotation);
+                        g.TranslateTransform(-item.DisplayWidth / 2f, -item.DisplayHeight / 2f);
+
+                        g.DrawImage(item.PreviewImage, 0, 0, item.DisplayWidth, item.DisplayHeight);
+
+                        g.Restore(state);
+                    }
+
+                    if (options.DrawBorder)
+                    {
+                        g.ResetClip();
+                        g.ResetTransform();
+
+                        using (Pen borderPen = new Pen(Color.Black, 1))
+                        {
+                            g.DrawRectangle(borderPen, 0, 0, width - 1, height - 1);
+                        }
+                    }
+                }
+
+                System.Drawing.Imaging.ImageFormat format = options.IsPng
+                    ? System.Drawing.Imaging.ImageFormat.Png
+                    : System.Drawing.Imaging.ImageFormat.Jpeg;
+
+                exportBmp.Save(filePath, format);
+            }
+        }
     }
 
     public class ClipItem
@@ -1470,4 +1681,13 @@ namespace PureClip
             CanvasSnapshot = currentCanvas;
         }
     }
+
+    public class ExportOptions
+    {
+        public bool IsPng { get; set; } = true;
+        public bool IncludeBackground { get; set; } = true;
+        public bool DrawBorder { get; set; } = false;
+        public int ScalePercentage { get; set; } = 100;
+    }
+
 }
