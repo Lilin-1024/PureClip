@@ -14,6 +14,13 @@ namespace PureClip
         private bool _isProcessingUndoRedo = false;
 
         public int _CanvasSize = 300;
+        private int _CanvasMargin = 20;
+
+        private Color _canvasColor = Color.FromArgb(45, 45, 45);
+        private ContextMenuStrip _contextMenu;
+        private ContextMenuStrip _contextMenuSelection;
+        private ToolStripMenuItem _menuItemMode;
+
         public Form1()
         {
             InitializeComponent();
@@ -48,6 +55,7 @@ namespace PureClip
             };
             animationTimer.Start();
 
+            InitializeContextMenu();
             UpdateCursor();
         }
 
@@ -75,6 +83,175 @@ namespace PureClip
                 CreateParams cp = base.CreateParams;
                 cp.Style |= 0x00020000;
                 return cp;
+            }
+        }
+
+        private void InitializeContextMenu()
+        {
+            _contextMenu = new ContextMenuStrip();
+            _contextMenu.RenderMode = ToolStripRenderMode.System;
+
+            _menuItemMode = new ToolStripMenuItem("Mode (W)");
+            var subPointer = new ToolStripMenuItem("Pointer", null, (s, e) => SwitchMode(ToolMode.Pointer));
+            var subRect = new ToolStripMenuItem("Rectangle Select", null, (s, e) => SwitchMode(ToolMode.RectSelect));
+            var subLasso = new ToolStripMenuItem("Lasso", null, (s, e) => SwitchMode(ToolMode.Lasso));
+            _menuItemMode.DropDownItems.Add(subPointer);
+            _menuItemMode.DropDownItems.Add(subRect);
+            _menuItemMode.DropDownItems.Add(subLasso);
+
+            var itemSettings = new ToolStripMenuItem("Canvas Settings");
+
+            var subColor = new ToolStripMenuItem("Canvas Color...", null, (s, e) => {
+                ColorDialog cd = new ColorDialog();
+                cd.Color = _canvasColor;
+                cd.AllowFullOpen = true;
+                if (cd.ShowDialog() == DialogResult.OK) { _canvasColor = cd.Color; Invalidate(); }
+            });
+
+            var subMargin = new ToolStripMenuItem("Canvas Margin...", null, (s, e) => {
+                using (Form inputForm = new Form())
+                {
+                    inputForm.Width = 250;
+                    inputForm.Height = 180;
+                    inputForm.Text = "Set Margin";
+                    inputForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                    inputForm.StartPosition = FormStartPosition.CenterScreen;
+                    inputForm.MaximizeBox = false;
+                    inputForm.MinimizeBox = false;
+
+                    inputForm.TopMost = this.TopMost;
+
+                    Label lbl = new Label() { Left = 20, Top = 10, Text = "Pixel Amount:", AutoSize = true };
+                    NumericUpDown input = new NumericUpDown() { Left = 20, Top = 40, Width = 190, Minimum = 1, Maximum = 500, Value = _CanvasMargin };
+                    Button btnOk = new Button() { Text = "OK", Left = 140, Top = 82, Height = 28,Width = 70, DialogResult = DialogResult.OK};
+
+                    inputForm.Controls.Add(lbl);
+                    inputForm.Controls.Add(input);
+                    inputForm.Controls.Add(btnOk);
+                    inputForm.AcceptButton = btnOk;
+
+                    if (inputForm.ShowDialog() == DialogResult.OK)
+                    {
+                        _CanvasMargin = (int)input.Value;
+                        Invalidate();
+                    }
+                }
+            });
+
+            var subTopMost = new ToolStripMenuItem("Always on Top");
+            subTopMost.Checked = this.TopMost;
+            subTopMost.Click += (s, e) => {
+                this.TopMost = !this.TopMost;
+                subTopMost.Checked = this.TopMost;
+            };
+
+            itemSettings.DropDownItems.Add(subColor);
+            itemSettings.DropDownItems.Add(new ToolStripSeparator());
+            itemSettings.DropDownItems.Add(subMargin);
+            itemSettings.DropDownItems.Add(new ToolStripSeparator());
+            itemSettings.DropDownItems.Add(subTopMost);
+
+            var itemExport = new ToolStripMenuItem("Export Image...", null, (s, e) => {
+                MessageBox.Show("Export function to be implemented.", "PureClip");
+            });
+
+            var itemExit = new ToolStripMenuItem("Exit", null, (s, e) => {
+                var result = MessageBox.Show(
+                    this,
+                    "Are you sure you want to exit?",
+                    "Exit Confirmation",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    Application.Exit();
+                }
+            });
+
+            _contextMenu.Items.Add(_menuItemMode);
+            _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add(itemSettings);
+            _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add(itemExport);
+            _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add(itemExit);
+
+
+            _contextMenuSelection = new ContextMenuStrip();
+            _contextMenuSelection.RenderMode = ToolStripRenderMode.System;
+
+            var itemCopy = new ToolStripMenuItem("Copy Selection (C)", null, (s, e) => {
+                HandleSelection(true);
+                AfterSelectionAction();
+            });
+
+            var itemCut = new ToolStripMenuItem("Cut (Enter)", null, (s, e) => {
+                HandleSelection(false);
+                AfterSelectionAction();
+            });
+
+            var itemDelete = new ToolStripMenuItem("Delete (Del)", null, (s, e) => {
+                DeleteInsideSelection();
+                AfterSelectionAction();
+            });
+
+            var itemCrop = new ToolStripMenuItem("Crop (K)", null, (s, e) => {
+                KeepOnlySelection();
+                AfterSelectionAction();
+            });
+
+            var itemDeselect = new ToolStripMenuItem("Deselect (D)", null, (s, e) => {
+                _selectionPath.Reset();
+                _tempRect = RectangleF.Empty;
+                _currentLassoPoints.Clear();
+                Invalidate();
+                Invalidate();
+            });
+
+            _contextMenuSelection.Items.Add(itemCopy);
+            _contextMenuSelection.Items.Add(new ToolStripSeparator());
+            _contextMenuSelection.Items.Add(itemCut);
+            _contextMenuSelection.Items.Add(new ToolStripSeparator());
+            _contextMenuSelection.Items.Add(itemDelete);
+            _contextMenuSelection.Items.Add(new ToolStripSeparator());
+            _contextMenuSelection.Items.Add(itemCrop);
+            _contextMenuSelection.Items.Add(new ToolStripSeparator());
+            _contextMenuSelection.Items.Add(itemDeselect);
+        }
+
+        private void AfterSelectionAction()
+        {
+            _currentMode = ToolMode.Pointer;
+            UpdateCursor();
+            Invalidate();
+        }
+        private void SwitchMode(ToolMode mode)
+        {
+            _currentMode = mode;
+            UpdateCursor();
+            Invalidate();
+        }
+
+        private void UpdateMenuCheckState()
+        {
+            foreach (ToolStripMenuItem item in _menuItemMode.DropDownItems)
+            {
+                item.Checked = false;
+            }
+
+            switch (_currentMode)
+            {
+                case ToolMode.Pointer:
+                    ((ToolStripMenuItem)_menuItemMode.DropDownItems[0]).Checked = true;
+                    break;
+                case ToolMode.RectSelect:
+                    ((ToolStripMenuItem)_menuItemMode.DropDownItems[1]).Checked = true;
+                    break;
+                case ToolMode.Lasso:
+                    ((ToolStripMenuItem)_menuItemMode.DropDownItems[2]).Checked = true;
+                    break;
             }
         }
 
@@ -124,7 +301,7 @@ namespace PureClip
                         }
                         _items.Add(newItem);
 
-                        int margin = 20;
+                        int margin = _CanvasMargin;
                         Rectangle newItemRect = new Rectangle(
                             (int)newItem.X - margin,
                             (int)newItem.Y - margin,
@@ -161,7 +338,7 @@ namespace PureClip
 
             Rectangle activeCanvas = GetCurrentCanvasBounds();
 
-            using (SolidBrush brush = new SolidBrush(Color.FromArgb(45, 45, 45)))
+            using (SolidBrush brush = new SolidBrush(_canvasColor))
             {
                 g.FillRectangle(brush, activeCanvas);
             }
@@ -233,6 +410,8 @@ namespace PureClip
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            if (e.Button == MouseButtons.Right) return;
+
             if (_currentMode == ToolMode.Pointer)
             {
                 base.OnMouseDown(e);
@@ -304,7 +483,7 @@ namespace PureClip
                 float dy = currentMousePos.Y - _lastMousePos.Y;
 
                 Rectangle screen = Screen.PrimaryScreen.WorkingArea;
-                int wallMargin = 10;
+                int wallMargin = _CanvasMargin;
 
                 float minX = _selectedItems.Min(i => i.X) + dx;
                 float minY = _selectedItems.Min(i => i.Y) + dy;
@@ -329,7 +508,7 @@ namespace PureClip
                     item.Y += dy;
                 }
 
-                int margin = 20;
+                int margin = _CanvasMargin;
                 float groupMinX = _selectedItems.Min(i => i.X) - margin;
                 float groupMinY = _selectedItems.Min(i => i.Y) - margin;
                 float groupMaxX = _selectedItems.Max(i => i.X + i.DisplayWidth) + margin;
@@ -365,11 +544,44 @@ namespace PureClip
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
+            if (e.Button == MouseButtons.Right)
+            {
+                _isSelecting = false;
+                _tempRect = RectangleF.Empty;
+                _currentLassoPoints.Clear();
+                Invalidate();
+
+                bool clickedOnSelection = false;
+                if (_selectionPath.PointCount > 0)
+                {
+                    if (_selectionPath.IsVisible(e.Location))
+                    {
+                        clickedOnSelection = true;
+                    }
+                }
+
+                if (clickedOnSelection)
+                {
+                    _contextMenuSelection.Show(this, e.Location);
+                }
+                else
+                {
+                    UpdateMenuCheckState();
+                    _contextMenu.Show(this, e.Location);
+                }
+
+                return;
+            }
+
+            GraphicsPath currentStrokePath = new GraphicsPath(FillMode.Winding);
+            bool hasShape = false;
+
             if (_currentMode == ToolMode.RectSelect && _isSelecting)
             {
                 if (_tempRect.Width > 0 && _tempRect.Height > 0)
                 {
-                    _selectionPath.AddRectangle(_tempRect);
+                    currentStrokePath.AddRectangle(_tempRect);
+                    hasShape = true;
                 }
                 _tempRect = RectangleF.Empty;
             }
@@ -377,11 +589,18 @@ namespace PureClip
             {
                 if (_currentLassoPoints.Count > 2)
                 {
-                    _selectionPath.AddPolygon(_currentLassoPoints.ToArray());
+                    currentStrokePath.AddPolygon(_currentLassoPoints.ToArray());
+                    hasShape = true;
                 }
                 _currentLassoPoints.Clear();
             }
 
+            if (hasShape)
+            {
+                _selectionPath.AddPath(currentStrokePath, false);
+            }
+
+            currentStrokePath.Dispose();
             _draggingItem = null;
             _isSelecting = false;
             Invalidate();
@@ -393,7 +612,7 @@ namespace PureClip
 
             float zoomFactor = e.Delta > 0 ? 1.1f : 0.9f;
             Rectangle screen = Screen.PrimaryScreen.WorkingArea;
-            int margin = 20;
+            int margin = _CanvasMargin;
 
             if (_selectedItems.Count > 0)
             {
