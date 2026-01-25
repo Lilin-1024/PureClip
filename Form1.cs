@@ -19,7 +19,13 @@ namespace PureClip
         private Color _canvasColor = Color.FromArgb(45, 45, 45);
         private ContextMenuStrip _contextMenu;
         private ContextMenuStrip _contextMenuSelection;
+        private ContextMenuStrip _contextMenuItem;
         private ToolStripMenuItem _menuItemMode;
+
+        private bool _isRotating = false;
+        private PointF _rotationCenter;
+        private float _startMouseAngle;
+        private Dictionary<ClipItem, float> _initialItemRotations = new Dictionary<ClipItem, float>();
 
         public Form1()
         {
@@ -88,6 +94,7 @@ namespace PureClip
 
         private void InitializeContextMenu()
         {
+            //画布菜单
             _contextMenu = new ContextMenuStrip();
             _contextMenu.RenderMode = ToolStripRenderMode.System;
 
@@ -178,7 +185,7 @@ namespace PureClip
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(itemExit);
 
-
+            //选区菜单
             _contextMenuSelection = new ContextMenuStrip();
             _contextMenuSelection.RenderMode = ToolStripRenderMode.System;
 
@@ -219,6 +226,35 @@ namespace PureClip
             _contextMenuSelection.Items.Add(itemCrop);
             _contextMenuSelection.Items.Add(new ToolStripSeparator());
             _contextMenuSelection.Items.Add(itemDeselect);
+
+            //图片菜单
+            _contextMenuItem = new ContextMenuStrip();
+            _contextMenuItem.RenderMode = ToolStripRenderMode.System;
+
+            var itemRotate = new ToolStripMenuItem("Rotate (R)", null, (s, e) => {
+                StartRotation();
+            });
+
+            var itemMirror = new ToolStripMenuItem("Mirror");
+            itemMirror.DropDownItems.Add("Horizontal", null, (s, e) => RotateSelectedItems(RotateFlipType.RotateNoneFlipX));
+            itemMirror.DropDownItems.Add("Vertical", null, (s, e) => RotateSelectedItems(RotateFlipType.RotateNoneFlipY));
+
+            var itemExportItem = new ToolStripMenuItem("Export Image...", null, (s, e) => {
+                MessageBox.Show("Selected image(s) export to be implemented.", "PureClip");
+            });
+
+            var itemDeleteItem = new ToolStripMenuItem("Delete", null, (s, e) => {
+                DeleteSelectedItems();
+                Invalidate();
+            });
+
+            _contextMenuItem.Items.Add(itemRotate);
+            _contextMenuItem.Items.Add(new ToolStripSeparator());
+            _contextMenuItem.Items.Add(itemMirror);
+            _contextMenuItem.Items.Add(new ToolStripSeparator());
+            _contextMenuItem.Items.Add(itemExportItem);
+            _contextMenuItem.Items.Add(new ToolStripSeparator());
+            _contextMenuItem.Items.Add(itemDeleteItem);
         }
 
         private void AfterSelectionAction()
@@ -335,6 +371,7 @@ namespace PureClip
         {
             Graphics g = e.Graphics;
             g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Low;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
 
             Rectangle activeCanvas = GetCurrentCanvasBounds();
 
@@ -354,15 +391,25 @@ namespace PureClip
 
             foreach (var item in _items)
             {
-                g.DrawImage(item.PreviewImage, item.X, item.Y, item.DisplayWidth, item.DisplayHeight);
+                GraphicsState state = g.Save();
+
+                PointF center = item.Center;
+                g.TranslateTransform(center.X, center.Y);
+
+                g.RotateTransform(item.Rotation);
+
+                g.TranslateTransform(-item.DisplayWidth / 2f, -item.DisplayHeight / 2f);
+
+                g.DrawImage(item.PreviewImage, 0, 0, item.DisplayWidth, item.DisplayHeight);
 
                 if (_selectedItems.Contains(item))
                 {
                     using (Pen p = new Pen(Color.FromArgb(150, 100, 100, 255), 2))
                     {
-                        g.DrawRectangle(p, item.X - 1, item.Y - 1, item.DisplayWidth + 2, item.DisplayHeight + 2);
+                        g.DrawRectangle(p, -1, -1, item.DisplayWidth + 2, item.DisplayHeight + 2);
                     }
                 }
+                g.Restore(state);
             }
 
             //绘制虚线框
@@ -402,6 +449,21 @@ namespace PureClip
                     }
                 }
             }
+
+            if (_isRotating)
+            {
+                Point mousePos = this.PointToClient(Cursor.Position);
+
+                using (Pen guidePen = new Pen(Color.White, 1))
+                {
+                    guidePen.DashStyle = DashStyle.Dash;
+                    g.DrawLine(guidePen, _rotationCenter, mousePos);
+
+                    int r = 5;
+                    g.DrawLine(Pens.White, _rotationCenter.X - r, _rotationCenter.Y, _rotationCenter.X + r, _rotationCenter.Y);
+                    g.DrawLine(Pens.White, _rotationCenter.X, _rotationCenter.Y - r, _rotationCenter.X, _rotationCenter.Y + r);
+                }
+            }
         }
 
         private ClipItem _draggingItem = null;
@@ -410,6 +472,30 @@ namespace PureClip
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            if (_isRotating)
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    _isRotating = false;
+                    _initialItemRotations.Clear();
+                    Invalidate();
+                }
+                else if (e.Button == MouseButtons.Right)
+                {
+                    foreach (var kvp in _initialItemRotations)
+                    {
+                        kvp.Key.Rotation = kvp.Value;
+                    }
+                    _isRotating = false;
+                    _initialItemRotations.Clear();
+
+                    if (_undoStack.Count > 0) _undoStack.RemoveFirst();
+
+                    Invalidate();
+                }
+                return;
+            }
+
             if (e.Button == MouseButtons.Right) return;
 
             if (_currentMode == ToolMode.Pointer)
@@ -476,7 +562,29 @@ namespace PureClip
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
-            if (_currentMode == ToolMode.Pointer && _draggingItem != null && e.Button == MouseButtons.Left)
+            if (_isRotating)
+            {
+                float dx = e.X - _rotationCenter.X;
+                float dy = e.Y - _rotationCenter.Y;
+
+                float currentMouseAngle = (float)(Math.Atan2(dy, dx) * 180 / Math.PI);
+
+                float angleDelta = currentMouseAngle - _startMouseAngle;
+
+                foreach (var item in _selectedItems)
+                {
+                    if (_initialItemRotations.ContainsKey(item))
+                    {
+                        float originalAngle = _initialItemRotations[item];
+                        item.Rotation = originalAngle + angleDelta;
+                    }
+                }
+
+                Invalidate();
+                return;
+            }
+
+            if (_currentMode == ToolMode.Pointer && _draggingItem != null && e.Button == MouseButtons.Left && !_isRotating)
             {
                 Point currentMousePos = Cursor.Position;
                 float dx = currentMousePos.X - _lastMousePos.X;
@@ -563,6 +671,29 @@ namespace PureClip
                 if (clickedOnSelection)
                 {
                     _contextMenuSelection.Show(this, e.Location);
+                    return;
+                }
+
+                ClipItem clickedItem = null;
+                for (int i = _items.Count - 1; i >= 0; i--)
+                {
+                    if (_items[i].Contains(e.X, e.Y))
+                    {
+                        clickedItem = _items[i];
+                        break;
+                    }
+                }
+
+                if (clickedItem != null)
+                {
+                    if (!_selectedItems.Contains(clickedItem))
+                    {
+                        _selectedItems.Clear();
+                        _selectedItems.Add(clickedItem);
+                        Invalidate();
+                    }
+
+                    _contextMenuItem.Show(this, e.Location);
                 }
                 else
                 {
@@ -724,6 +855,11 @@ namespace PureClip
                 Invalidate();
             }
 
+            if (e.KeyCode == Keys.R && _selectedItems.Count > 0 && !_isRotating)
+            {
+                StartRotation();
+            }
+
             if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.X)
             {
                 if (_selectionPath.PointCount > 0)
@@ -792,6 +928,33 @@ namespace PureClip
                 }
             }
             base.WndProc(ref m);
+        }
+
+        private void StartRotation()
+        {
+            _isRotating = true;
+            SaveState();
+
+            float sumX = 0, sumY = 0;
+            foreach (var item in _selectedItems)
+            {
+                sumX += item.Center.X;
+                sumY += item.Center.Y;
+            }
+            _rotationCenter = new PointF(sumX / _selectedItems.Count, sumY / _selectedItems.Count);
+
+            Point mousePos = this.PointToClient(Cursor.Position);
+            float dx = mousePos.X - _rotationCenter.X;
+            float dy = mousePos.Y - _rotationCenter.Y;
+            _startMouseAngle = (float)(Math.Atan2(dy, dx) * 180 / Math.PI);
+
+            _initialItemRotations.Clear();
+            foreach (var item in _selectedItems)
+            {
+                _initialItemRotations[item] = item.Rotation;
+            }
+
+            Invalidate();
         }
 
         private void HandleSelection(bool isCopyOnly = false)
@@ -978,6 +1141,21 @@ namespace PureClip
             Invalidate();
         }
 
+        private void RotateSelectedItems(RotateFlipType type)
+        {
+            if (_selectedItems.Count == 0) return;
+
+            SaveState();
+
+            foreach (var item in _selectedItems)
+            {
+                item.ImageData.RotateFlip(type);
+                item.UpdatePreview();
+            }
+
+            Invalidate();
+        }
+
         private void DeleteInsideSelection()
         {
             if (_selectionPath.PointCount == 0) return;
@@ -1130,9 +1308,12 @@ namespace PureClip
         public float X;
         public float Y;
         public float Scale = 1.0f;
+        public float Rotation = 0f;
 
         public float DisplayWidth => ImageData.Width * Scale;
         public float DisplayHeight => ImageData.Height * Scale;
+
+        public PointF Center => new PointF(X + DisplayWidth / 2, Y + DisplayHeight / 2);
 
         public ClipItem(Bitmap original)
         {
@@ -1160,8 +1341,18 @@ namespace PureClip
 
         public bool Contains(float mouseX, float mouseY)
         {
-            return mouseX > X && mouseX <= X + DisplayWidth &&
-                   mouseY > Y && mouseY <= Y + DisplayHeight;
+
+            PointF center = this.Center;
+            float dx = mouseX - center.X;
+            float dy = mouseY - center.Y;
+
+            double angleRad = -this.Rotation * Math.PI / 180.0;
+
+            float localX = (float)(dx * Math.Cos(angleRad) - dy * Math.Sin(angleRad)) + center.X;
+            float localY = (float)(dx * Math.Sin(angleRad) + dy * Math.Cos(angleRad)) + center.Y;
+
+            return localX > X && localX <= X + DisplayWidth &&
+                   localY > Y && localY <= Y + DisplayHeight;
         }
 
         public Rectangle GetInternalRect(RectangleF screenRect)
