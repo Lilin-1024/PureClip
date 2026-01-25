@@ -560,11 +560,11 @@ namespace PureClip
                     _draggingItem = clickedItem;
                     _lastMousePos = Cursor.Position;
 
-                    foreach (var item in _selectedItems.ToList())
+                    /*foreach (var item in _selectedItems.ToList())
                     {
                         _items.Remove(item);
                         _items.Add(item);
-                    }
+                    }*/
                 }
                 else
                 {
@@ -963,6 +963,41 @@ namespace PureClip
                 KeepOnlySelection();
                 _currentMode = ToolMode.Pointer;
                 UpdateCursor();
+            }
+
+            if (e.KeyCode == Keys.OemOpenBrackets && _selectedItems.Count > 0)
+            {
+                SaveState();
+
+                var sortedSelection = _selectedItems.OrderBy(item => _items.IndexOf(item)).ToList();
+
+                foreach (var item in sortedSelection)
+                {
+                    int index = _items.IndexOf(item);
+                    if (index > 0)
+                    {
+                        _items.RemoveAt(index);
+                        _items.Insert(index - 1, item);
+                    }
+                }
+                Invalidate();
+            }
+
+            if (e.KeyCode == Keys.OemCloseBrackets && _selectedItems.Count > 0)
+            {
+                SaveState();
+                var sortedSelection = _selectedItems.OrderByDescending(item => _items.IndexOf(item)).ToList();
+
+                foreach (var item in sortedSelection)
+                {
+                    int index = _items.IndexOf(item);
+                    if (index < _items.Count - 1)
+                    {
+                        _items.RemoveAt(index);
+                        _items.Insert(index + 1, item);
+                    }
+                }
+                Invalidate();
             }
         }
 
@@ -1369,10 +1404,11 @@ namespace PureClip
             options = new ExportOptions();
             filePath = "";
 
+            // 导出界面
             using (Form form = new Form())
             {
                 form.Text = "Export Image";
-                form.Size = new Size(350, 320);
+                form.Size = new Size(310, 285);
                 form.FormBorderStyle = FormBorderStyle.FixedDialog;
                 form.StartPosition = FormStartPosition.CenterParent;
                 form.MaximizeBox = false;
@@ -1386,13 +1422,13 @@ namespace PureClip
                 // 格式
                 Label lblFormat = new Label() { Text = "Format:", Location = new Point(x, y), AutoSize = true };
                 RadioButton rbPng = new RadioButton() { Text = "PNG", Location = new Point(x + 80, y), Checked = true, AutoSize = true };
-                RadioButton rbJpg = new RadioButton() { Text = "JPG", Location = new Point(x + 190, y), AutoSize = true };
+                RadioButton rbJpg = new RadioButton() { Text = "JPG", Location = new Point(x + 165, y), AutoSize = true };
                 form.Controls.AddRange(new Control[] { lblFormat, rbPng, rbJpg });
 
                 y += spacing;
 
                 // 背景
-                CheckBox chkBg = new CheckBox() { Text = "Include Background", Location = new Point(x, y), Checked = true, AutoSize = true, Width = 300 };
+                CheckBox chkBg = new CheckBox() { Text = "Include Background", Location = new Point(x, y + 3), Checked = true, AutoSize = true, Width = 300 };
                 form.Controls.Add(chkBg);
 
                 rbJpg.CheckedChanged += (s, e) => {
@@ -1403,17 +1439,17 @@ namespace PureClip
                 y += spacing;
 
                 // 边框
-                CheckBox chkBorder = new CheckBox() { Text = "Draw Border", Location = new Point(x, y), Checked = false, AutoSize = true, Width = 300 };
+                CheckBox chkBorder = new CheckBox() { Text = "Draw Border", Location = new Point(x, y + 3), Checked = false, AutoSize = true, Width = 300 };
                 form.Controls.Add(chkBorder);
 
                 y += spacing;
 
                 // 缩放
-                Label lblScale = new Label() { Text = "Scale:", Location = new Point(x, y), AutoSize = true };
+                Label lblScale = new Label() { Text = "Scale:", Location = new Point(x, y + 3), AutoSize = true };
 
                 ComboBox cmbScale = new ComboBox()
                 {
-                    Location = new Point(x + 80, y - 3),
+                    Location = new Point(x + 60, y),
                     Width = 100,
                     DropDownStyle = ComboBoxStyle.DropDown
                 };
@@ -1424,9 +1460,9 @@ namespace PureClip
                 form.Controls.AddRange(new Control[] { lblScale, cmbScale });
                 y += spacing * 2;
 
-
-                Button btnSave = new Button() { Text = "Export", DialogResult = DialogResult.None, Location = new Point(160, y), Width = 150, Height = 40 }; // DialogResult设为None，我们需要手动校验
-                Button btnCancel = new Button() { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(20, y), Width = 100, Height = 40 };
+                // 按钮
+                Button btnSave = new Button() { Text = "Export", DialogResult = DialogResult.None, Location = new Point(170, y - 20), Width = 100, Height = 40 }; 
+                Button btnCancel = new Button() { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(20, y - 20), Width = 100, Height = 40 };
                 form.Controls.AddRange(new Control[] { btnSave, btnCancel });
                 form.AcceptButton = btnSave;
                 form.CancelButton = btnCancel;
