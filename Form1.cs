@@ -48,7 +48,7 @@ namespace PureClip
             this.AllowDrop = true;
             this.DoubleBuffered = true;
 
-            // ÐéÏß¿ò
+            // è™šçº¿æ¡†
             System.Windows.Forms.Timer animationTimer = new System.Windows.Forms.Timer();
             animationTimer.Interval = 100;
             animationTimer.Tick += (s, e) => {
@@ -85,7 +85,7 @@ namespace PureClip
         {
             get
             {
-                //ÔÊÐí×îÐ¡»¯
+                //å…è®¸æœ€å°åŒ–
                 CreateParams cp = base.CreateParams;
                 cp.Style |= 0x00020000;
                 return cp;
@@ -94,7 +94,7 @@ namespace PureClip
 
         private void InitializeContextMenu()
         {
-            //»­²¼²Ëµ¥
+            //ç”»å¸ƒèœå•
             _contextMenu = new ContextMenuStrip();
             _contextMenu.RenderMode = ToolStripRenderMode.System;
 
@@ -188,7 +188,7 @@ namespace PureClip
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(itemExit);
 
-            //Ñ¡Çø²Ëµ¥
+            //é€‰åŒºèœå•
             _contextMenuSelection = new ContextMenuStrip();
             _contextMenuSelection.RenderMode = ToolStripRenderMode.System;
 
@@ -242,7 +242,7 @@ namespace PureClip
             _contextMenuSelection.Items.Add(new ToolStripSeparator());
             _contextMenuSelection.Items.Add(itemExportSelection);
 
-            //Í¼Æ¬²Ëµ¥
+            //å›¾ç‰‡èœå•
             _contextMenuItem = new ContextMenuStrip();
             _contextMenuItem.RenderMode = ToolStripRenderMode.System;
 
@@ -444,7 +444,7 @@ namespace PureClip
                 g.Restore(state);
             }
 
-            //»æÖÆÐéÏß¿ò
+            //ç»˜åˆ¶è™šçº¿æ¡†
             if (_selectionPath.PointCount > 0)
             {
                 using (Pen antsPen = new Pen(Color.White, 1))
@@ -618,7 +618,7 @@ namespace PureClip
                     }
                 }
 
-                //À©Õ¹»­²¼
+                //æ‰©å±•ç”»å¸ƒ
                 int margin = _CanvasMargin;
                 foreach (var item in _selectedItems)
                 {
@@ -809,7 +809,7 @@ namespace PureClip
                     float nextScale = item.Scale * zoomFactor;
                     if (nextScale < 0.01f) nextScale = 0.01f;
 
-                    // ÆÁÄ»³ß´çÏÞÖÆ
+                    // å±å¹•å°ºå¯¸é™åˆ¶
                     float nextWidth = item.ImageData.Width * nextScale;
                     float nextHeight = item.ImageData.Height * nextScale;
                     int maxAllowedW = screen.Width - margin * 2;
@@ -1180,7 +1180,7 @@ namespace PureClip
             _selectedItems.Clear();
             _selectedItems.AddRange(newItems);
 
-            //À©Õ¹»­²¼
+            //æ‰©å±•ç”»å¸ƒ
             int margin = _CanvasMargin;
             foreach (var item in newItems)
             {
@@ -1457,7 +1457,7 @@ namespace PureClip
             options = new ExportOptions();
             filePath = "";
 
-            // µ¼³ö½çÃæ
+            // å¯¼å‡ºç•Œé¢
             using (Form form = new Form())
             {
                 form.Text = "Export Image";
@@ -1472,7 +1472,7 @@ namespace PureClip
                 int x = 20;
                 int spacing = 35;
 
-                // ¸ñÊ½
+                // æ ¼å¼
                 Label lblFormat = new Label() { Text = "Format:", Location = new Point(x, y), AutoSize = true };
                 RadioButton rbPng = new RadioButton() { Text = "PNG", Location = new Point(x + 80, y), Checked = true, AutoSize = true };
                 RadioButton rbJpg = new RadioButton() { Text = "JPG", Location = new Point(x + 165, y), AutoSize = true };
@@ -1480,7 +1480,7 @@ namespace PureClip
 
                 y += spacing;
 
-                // ±³¾°
+                // èƒŒæ™¯
                 CheckBox chkBg = new CheckBox() { Text = "Include Background", Location = new Point(x, y + 3), Checked = true, AutoSize = true, Width = 300 };
                 form.Controls.Add(chkBg);
 
@@ -1491,13 +1491,13 @@ namespace PureClip
 
                 y += spacing;
 
-                // ±ß¿ò
+                // è¾¹æ¡†
                 CheckBox chkBorder = new CheckBox() { Text = "Draw Border", Location = new Point(x, y + 3), Checked = false, AutoSize = true, Width = 300 };
                 form.Controls.Add(chkBorder);
 
                 y += spacing;
 
-                // Ëõ·Å
+                // ç¼©æ”¾
                 Label lblScale = new Label() { Text = "Scale:", Location = new Point(x, y + 3), AutoSize = true };
 
                 ComboBox cmbScale = new ComboBox()
@@ -1513,7 +1513,7 @@ namespace PureClip
                 form.Controls.AddRange(new Control[] { lblScale, cmbScale });
                 y += spacing * 2;
 
-                // °´Å¥
+                // æŒ‰é’®
                 Button btnSave = new Button() { Text = "Export", DialogResult = DialogResult.None, Location = new Point(170, y - 20), Width = 100, Height = 40 }; 
                 Button btnCancel = new Button() { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(20, y - 20), Width = 100, Height = 40 };
                 form.Controls.AddRange(new Control[] { btnSave, btnCancel });
